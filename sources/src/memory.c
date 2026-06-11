@@ -715,13 +715,21 @@ void REGPARAM2 chipmem_bput_limit(uaecptr addr, uae_u32 b)
 }
 
 
+/* e9k debug memory-access hooks (see spike-puae-wasm/e9k/e9k_debug.h) */
+extern void e9k_debug_memhook_afterRead(uint32_t addr24, uint32_t value, uint32_t sizeBits);
+extern int  e9k_debug_memhook_filterWrite(uint32_t addr24, uint32_t sizeBits, uint32_t oldValue, int oldValueValid, uint32_t *inoutValue);
+extern void e9k_debug_memhook_afterWrite(uint32_t addr24, uint32_t value, uint32_t oldValue, uint32_t sizeBits, int oldValueValid);
+
 static uae_u32 REGPARAM2 chipmem_lget (uaecptr addr)
 {
 	uae_u32 *m;
+	uae_u32 v;
 
 	addr &= chipmem_bank.mask;
 	m = (uae_u32 *)(chipmem_bank.baseaddr + addr);
-	return do_get_mem_long (m);
+	v = do_get_mem_long (m);
+	e9k_debug_memhook_afterRead(addr, v, 32);
+	return v;
 }
 
 static uae_u32 REGPARAM2 chipmem_wget (uaecptr addr)
@@ -731,6 +739,7 @@ static uae_u32 REGPARAM2 chipmem_wget (uaecptr addr)
 	addr &= chipmem_bank.mask;
 	m = (uae_u16 *)(chipmem_bank.baseaddr + addr);
 	v = do_get_mem_word (m);
+	e9k_debug_memhook_afterRead(addr, v, 16);
 	return v;
 }
 
@@ -739,31 +748,48 @@ static uae_u32 REGPARAM2 chipmem_bget (uaecptr addr)
 	uae_u8 v;
 	addr &= chipmem_bank.mask;
 	v = chipmem_bank.baseaddr[addr];
+	e9k_debug_memhook_afterRead(addr, v, 8);
 	return v;
 }
 
 void REGPARAM2 chipmem_lput (uaecptr addr, uae_u32 l)
 {
 	uae_u32 *m;
+	uae_u32 oldValue, newValue;
 
 	addr &= chipmem_bank.mask;
 	m = (uae_u32 *)(chipmem_bank.baseaddr + addr);
-	do_put_mem_long (m, l);
+	oldValue = do_get_mem_long (m);
+	newValue = l;
+	e9k_debug_memhook_filterWrite(addr, 32, oldValue, 1, &newValue);
+	do_put_mem_long (m, newValue);
+	e9k_debug_memhook_afterWrite(addr, newValue, oldValue, 32, 1);
 }
 
 void REGPARAM2 chipmem_wput (uaecptr addr, uae_u32 w)
 {
 	uae_u16 *m;
+	uae_u32 oldValue, newValue;
 
 	addr &= chipmem_bank.mask;
 	m = (uae_u16 *)(chipmem_bank.baseaddr + addr);
-	do_put_mem_word (m, w);
+	oldValue = do_get_mem_word (m);
+	newValue = w;
+	e9k_debug_memhook_filterWrite(addr, 16, oldValue, 1, &newValue);
+	do_put_mem_word (m, newValue);
+	e9k_debug_memhook_afterWrite(addr, newValue, oldValue, 16, 1);
 }
 
 void REGPARAM2 chipmem_bput (uaecptr addr, uae_u32 b)
 {
+	uae_u32 oldValue, newValue;
+
 	addr &= chipmem_bank.mask;
-	chipmem_bank.baseaddr[addr] = b;
+	oldValue = chipmem_bank.baseaddr[addr];
+	newValue = b;
+	e9k_debug_memhook_filterWrite(addr, 8, oldValue, 1, &newValue);
+	chipmem_bank.baseaddr[addr] = (uae_u8)newValue;
+	e9k_debug_memhook_afterWrite(addr, newValue, oldValue, 8, 1);
 }
 
 /* cpu chipmem access inside agnus addressable ram but no ram available */

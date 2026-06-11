@@ -1659,7 +1659,7 @@ void target_cpu_speed(void)
 
 #ifndef WITH_X86
 void x86_rt1000_bios(struct zfile *z, struct romconfig *rc) {}
-void x86_update_sound(double clk) {}
+void x86_update_sound(float clk) {}
 void x86_bridge_sync_change(void) {}
 #endif
 
@@ -1728,7 +1728,7 @@ int is_tablet(void) { return 0; }
 int is_touch_lightpen(void) { return 0; }
 void release_keys(void) {}
 
-bool inprec_realtime (bool stopstart) { return false; }
+bool inprec_realtime (void) { return false; }
 void desktop_coords(int monid, int *dw, int *dh, int *ax, int *ay, int *aw, int *ah) {}
 void update_disassembly(uae_u32 addr) {}
 void update_memdump(uae_u32 addr) {}

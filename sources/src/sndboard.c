@@ -3161,7 +3161,7 @@ Exit:;
 #endif /* HAVE_X86 */
 #else
 
-void update_sndboard_sound (double clk) {}
+void update_sndboard_sound (float clk) {}
 void sndboard_ext_volume(void) {}
 
 struct autoconfig_info;

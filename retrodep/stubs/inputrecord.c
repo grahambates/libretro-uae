@@ -182,10 +182,10 @@ void inprec_playdebug_cia (uae_u32 v1, uae_u32 v2, uae_u32 v3)
 {
 }
 
-void inprec_recorddebug_cpu (int mode)
+void inprec_recorddebug_cpu (int mode, uae_u16 data)
 {
 }
-void inprec_playdebug_cpu (int mode)
+void inprec_playdebug_cpu (int mode, uae_u16 data)
 {
 }
 
