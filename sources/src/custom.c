@@ -17182,3 +17182,43 @@ static void SET_LINE_CYCLEBASED(int hpos)
 	decide_line(hpos);
 	decide_fetch_safe(hpos);
 }
+
+// e9k-debugger: expose display-control register state that is write-only on
+// the 68k bus (BPLCON0-3, DIWSTRT/STOP, DDFSTRT/STOP are never readable on
+// real hardware, and COLOR00-31 read back the floating data bus) but is
+// needed by the debugger's Amiga State view. Order matches
+// E9K_DISPLAY_REG_COUNT in e9k_debug.h: BPLCON0-3, DIWSTRT, DIWSTOP,
+// DDFSTRT, DDFSTOP, then COLOR00-31 (raw 12-bit 0x0RGB values).
+void e9k_get_display_regs(uae_u16 *out)
+{
+	out[0] = bplcon0;
+	out[1] = bplcon1;
+	out[2] = bplcon2;
+	out[3] = bplcon3;
+	out[4] = (uae_u16)diwstrt;
+	out[5] = (uae_u16)diwstop;
+	out[6] = (uae_u16)ddfstrt;
+	out[7] = (uae_u16)ddfstop;
+	for (int i = 0; i < 32; i++) {
+		out[8 + i] = current_colors.color_regs_ecs[i];
+	}
+}
+
+#if defined SAVESTATE || defined DEBUGGER
+// e9k-debugger: raw $DFF000-$DFF1FE register-image snapshot, for write-only
+// registers not covered by e9k_get_display_regs above (blitter/copper/disk
+// pointers, bitplane/sprite pointers & data, display timing, etc). Reuses
+// the savestate machinery's save_custom(), which already gathers all of
+// this into one buffer. `out` must hold E9K_CUSTOM_REGS_RAW_SIZE bytes
+// (see e9k_debug.h for the exact layout/caveats).
+void e9k_get_custom_regs_raw(uae_u8 *out)
+{
+	size_t len;
+	save_custom(&len, out, 1);
+}
+#else
+void e9k_get_custom_regs_raw(uae_u8 *out)
+{
+	memset(out, 0, E9K_CUSTOM_REGS_RAW_SIZE);
+}
+#endif

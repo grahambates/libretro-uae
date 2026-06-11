@@ -75,6 +75,17 @@ extern uae_u32 hsync_counter, vsync_counter;
 extern uae_u16 dmacon;
 extern uae_u16 intena, intreq, intreqr;
 
+// e9k-debugger: see definition in custom.c. Fills `out` (must hold
+// E9K_DISPLAY_REG_COUNT uae_u16s, see e9k_debug.h) with display-control
+// register state that isn't readable via the normal 68k bus.
+extern void e9k_get_display_regs(uae_u16 *out);
+
+// e9k-debugger: see definition in custom.c. Fills `out` (must hold
+// E9K_CUSTOM_REGS_RAW_SIZE bytes, see e9k_debug.h) with a raw
+// $DFF000-$DFF1FE register-image snapshot via save_custom().
+#define E9K_CUSTOM_REGS_RAW_SIZE (8 + 256 * 2)
+extern void e9k_get_custom_regs_raw(uae_u8 *out);
+
 extern int vpos, lof_store, lof_display;
 extern int scandoubled_line;
 

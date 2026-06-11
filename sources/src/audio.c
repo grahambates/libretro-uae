@@ -3046,3 +3046,37 @@ void audio_cda_new_buffer(struct cd_audio_state *cas, uae_s16 *buffer, int lengt
 	if (cas->cda_streamid > 0)
 		audio_activate();
 }
+
+// e9k-debugger: AUD0-3 LC/LEN/PER/VOL/DAT "live register" values, packed
+// big-endian (matching e9k_get_custom_regs_raw's save_custom-derived
+// encoding) into `out`, which must hold E9K_AUDIO_REGS_SIZE bytes (see
+// e9k_debug.h). These registers are write-only on the 68k bus and aren't
+// part of save_custom()'s output, so audio_channel[] (static to this file)
+// is read directly here. AUDxPER's raw register value is reconstructed from
+// cdp->per (which AUDxPER stores pre-multiplied by CYCLE_UNIT, with 0
+// mapped to 65536) by reversing that transform; AUDxVOL uses the
+// already-masked 0-64 audvol value.
+void e9k_get_audio_regs_raw(uae_u8 *out)
+{
+	for (int i = 0; i < AUDIO_CHANNELS_PAULA; i++) {
+		struct audio_channel_data *cdp = audio_channel + i;
+		uae_u32 lc = cdp->lc;
+		uae_u16 len = (uae_u16)cdp->len;
+		uae_u16 per = (uae_u16)((cdp->per / CYCLE_UNIT) & 0xffff);
+		uae_u16 vol = (uae_u16)cdp->data.audvol;
+		uae_u16 dat = cdp->dat;
+
+		*out++ = (uae_u8)(lc >> 24);
+		*out++ = (uae_u8)(lc >> 16);
+		*out++ = (uae_u8)(lc >> 8);
+		*out++ = (uae_u8)(lc >> 0);
+		*out++ = (uae_u8)(len >> 8);
+		*out++ = (uae_u8)(len >> 0);
+		*out++ = (uae_u8)(per >> 8);
+		*out++ = (uae_u8)(per >> 0);
+		*out++ = (uae_u8)(vol >> 8);
+		*out++ = (uae_u8)(vol >> 0);
+		*out++ = (uae_u8)(dat >> 8);
+		*out++ = (uae_u8)(dat >> 0);
+	}
+}
