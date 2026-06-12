@@ -86,6 +86,12 @@ extern void e9k_get_display_regs(uae_u16 *out);
 #define E9K_CUSTOM_REGS_RAW_SIZE (8 + 256 * 2)
 extern void e9k_get_custom_regs_raw(uae_u8 *out);
 
+// e9k-debugger: called once per scanline from hsync_handler() (custom.c),
+// after all per-line state updates. Drives the optional hblank callback
+// registered via e9k_debug_set_hblank_callback() (see e9k_debug.h), used to
+// implement "run to end of line" (eol) stepping.
+extern void e9k_hsync_notify(void);
+
 extern int vpos, lof_store, lof_display;
 extern int scandoubled_line;
 

@@ -14714,6 +14714,9 @@ static void hsync_handler(void)
 	}
 	vsync_line = vs;
 	hsync_handler_post(vs);
+#ifdef __LIBRETRO__
+	e9k_hsync_notify();
+#endif
 }
 
 // executed at start of hsync
@@ -15331,6 +15334,16 @@ writeonly:
 		* Remembers old regs.chipset_latch_rw
 		*/
 		v = regs.chipset_latch_rw;
+		{
+			// Debugger-initiated memory inspection (e9k_debug_read_memory/
+			// peek_memory) must not have side effects on emulated hardware
+			// state: skip the real-hardware "reading a write-only register
+			// echoes the last chip bus value back as a write" behavior.
+			extern int e9k_debug_inspect_active;
+			if (e9k_debug_inspect_active) {
+				return v;
+			}
+		}
 		SET_LINE_CYCLEBASED(hpos);
 		if (!noput) {
 			int r, c, bmdma;
