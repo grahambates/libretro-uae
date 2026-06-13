@@ -7,7 +7,17 @@
 
 #define DEBUGGER
 #define FILESYS /* filesys emulation */
+/* UAE_FILESYS_THREADS spins a real pthread (filesys.c's filesys_start_thread)
+ * to process uaehf.device packets asynchronously. Emscripten builds aren't
+ * compiled with -pthread, so that thread never starts and any DH0:
+ * directory-mount filesystem operation hangs forever in WaitPort(). Without
+ * this define, filesys_handler() falls back to its synchronous
+ * handle_packet() call (same translation unit, just below the #ifdef) —
+ * processes the packet immediately on the emulation thread via plain
+ * fopen/opendir, which works fine against Emscripten's MEMFS. */
+#ifndef __EMSCRIPTEN__
 #define UAE_FILESYS_THREADS
+#endif
 #define AUTOCONFIG /* autoconfig support, fast ram, harddrives etc.. */
 //#define JIT /* JIT compiler support */
 //#define USE_JIT_FPU
