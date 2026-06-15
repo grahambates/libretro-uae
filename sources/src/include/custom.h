@@ -98,6 +98,11 @@ extern void e9k_hsync_notify(void);
 // "step back a frame" (stepBackFrame).
 extern void e9k_debug_frame_boundary_notify(void);
 
+// e9k-debugger: see definition in custom.c for index meanings. Diagnostics
+// for the bitplane-DMA fetch prediction/scheduling state used by
+// dma_cycle()'s CPU/chipset cycle-contention check.
+extern int32_t e9k_get_estimate_diag(uint32_t index, uint32_t param);
+
 extern int vpos, lof_store, lof_display;
 extern int scandoubled_line;
 

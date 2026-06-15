@@ -17220,6 +17220,85 @@ void e9k_get_display_regs(uae_u16 *out)
 	}
 }
 
+// e9k-debugger: diagnostics for the bitplane-DMA fetch prediction/scheduling
+// state used by dma_cycle()'s CPU/chipset cycle-contention check
+// (bitplane_dma_access() -> estimated_cycles[]/estimated_cycles_next[] when
+// !line_cyclebased, or cycle_line_pipe[] when line_cyclebased).
+//  0: estimated_cycles[param] (param = hpos, 0..maxhpos-1)
+//  1: estimated_cycles_next[param]
+//  2: count of hpos in [0,maxhpos) with estimated_cycles[hpos] > 0
+//  3: count of hpos in [0,maxhpos) with estimated_cycles_next[hpos] > 0
+//  4: line_cyclebased
+//  5: bprun
+//  6: bprun_end
+//  7: dmacon_bpl
+//  8: vdiwstate_bpl
+//  9: ddf_stopping
+// 10: estimated_empty
+int32_t e9k_get_estimate_diag(uint32_t index, uint32_t param)
+{
+	switch (index) {
+	case 0:
+		return (param < (uint32_t)maxhpos) ? (int32_t)estimated_cycles[param] : -1;
+	case 1:
+		return (param < (uint32_t)maxhpos) ? (int32_t)estimated_cycles_next[param] : -1;
+	case 2: {
+		int32_t n = 0;
+		for (int i = 0; i < maxhpos; i++) if (estimated_cycles[i] > 0) n++;
+		return n;
+	}
+	case 3: {
+		int32_t n = 0;
+		for (int i = 0; i < maxhpos; i++) if (estimated_cycles_next[i] > 0) n++;
+		return n;
+	}
+	case 4:
+		return (int32_t)line_cyclebased;
+	case 5:
+		return (int32_t)bprun;
+	case 6:
+		return (int32_t)bprun_end;
+	case 7:
+		return (int32_t)dmacon_bpl;
+	case 8:
+		return (int32_t)vdiwstate_bpl;
+	case 9:
+		return (int32_t)ddf_stopping;
+	case 10:
+		return (int32_t)estimated_empty;
+	case 11:
+		return (int32_t)ddf_enable_on;
+	case 12:
+		return (int32_t)ddf_limit;
+	case 13:
+		return (int32_t)hwi_old;
+	case 14:
+		return (int32_t)harddis_h;
+	case 15:
+		return (int32_t)plfstrt;
+	case 16:
+		return (int32_t)plfstop;
+	case 17:
+		return (int32_t)bpl_hstart;
+	case 18:
+		return (int32_t)fetch_cycle;
+	case 19:
+		return (int32_t)ddfstrt_hpos;
+	case 20:
+		return (int32_t)ecs_agnus;
+	case 21:
+		return (int32_t)last_decide_line_hpos;
+	case 22:
+		return (int32_t)ddfstrt_match;
+	case 23:
+		return (int32_t)plfstop_prev;
+	case 24:
+		return (int32_t)ddfstop_hpos;
+	default:
+		return -1;
+	}
+}
+
 #if defined SAVESTATE || defined DEBUGGER
 // e9k-debugger: raw $DFF000-$DFF1FE register-image snapshot, for write-only
 // registers not covered by e9k_get_display_regs above (blitter/copper/disk

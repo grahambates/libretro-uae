@@ -22,6 +22,11 @@
 
 #ifdef __LIBRETRO__
 extern bool libretro_frame_end;
+
+// e9k-debugger hooks (see e9k/e9k_debug.h, e9k/e9k_catchpoint.h for full docs).
+extern int e9k_debug_instructionHook(uaecptr pc, uae_u16 opcode);
+extern void e9k_debug_check_catchpoint(uint32_t vector, uint32_t pc);
+extern void e9k_debug_request_break_before_next_instr(void);
 #endif
 
 #include "options.h"
@@ -3484,6 +3489,9 @@ static void ExceptionX (int nr, uaecptr address, uaecptr oldpc)
 #ifdef DEBUGGER
 	debug_exception(nr);
 #endif
+#ifdef __LIBRETRO__
+	e9k_debug_check_catchpoint((uint32_t)nr, (uint32_t)pc);
+#endif
 	m68k_resumestopped();
 
 #ifdef CPUEMU_13
@@ -4385,8 +4393,10 @@ int cpu_sleep_millis(int ms)
 //	} else {
 		ret = sleep_millis_main(ms);
 //	}
-#elseif defined(__LIBRETRO__)
+#else
+#ifdef __LIBRETRO__
 	ret = sleep_millis_main(ms);
+#endif
 #endif
 #ifdef WITH_PPC
 	if (state)
@@ -5026,6 +5036,12 @@ static void m68k_run_1 (void)
 				}
 #endif
 				r->instruction_pc = m68k_getpc ();
+#ifdef __LIBRETRO__
+				if (e9k_debug_instructionHook(r->instruction_pc, (uae_u16)r->opcode)) {
+					exit = true;
+					continue;
+				}
+#endif
 				cpu_cycles = (*cpufunctbl[r->opcode])(r->opcode) & 0xffff;
 				if (!regs.loop_mode)
 					regs.ird = regs.opcode;
@@ -5145,6 +5161,12 @@ static void m68k_run_1_ce (void)
 #endif
 
 				r->instruction_pc = m68k_getpc ();
+#ifdef __LIBRETRO__
+				if (e9k_debug_instructionHook(r->instruction_pc, (uae_u16)r->opcode)) {
+					exit = true;
+					continue;
+				}
+#endif
 #ifdef DEBUGGER
 				if (debug_dma) {
 					record_dma_event_data(DMA_EVENT_CPUINS, current_hpos(), vpos, r->opcode);
@@ -6436,6 +6458,12 @@ static void cpu_thread_run_2(void *v)
 				r->instruction_pc = m68k_getpc();
 
 				r->opcode = x_get_iword(0);
+#ifdef __LIBRETRO__
+				if (e9k_debug_instructionHook(r->instruction_pc, (uae_u16)r->opcode)) {
+					exit = true;
+					continue;
+				}
+#endif
 
 				(*cpufunctbl[r->opcode])(r->opcode);
 
@@ -6472,6 +6500,12 @@ static void m68k_run_2_000(void)
 
 				r->opcode = x_get_iword(0);
 				count_instr (r->opcode);
+#ifdef __LIBRETRO__
+				if (e9k_debug_instructionHook(r->instruction_pc, (uae_u16)r->opcode)) {
+					exit = true;
+					continue;
+				}
+#endif
 #ifdef DEBUGGER
 				if (debug_opcode_watch) {
 					debug_trainer_match();
@@ -6517,6 +6551,12 @@ static void m68k_run_2_020(void)
 
 				r->opcode = x_get_iword(0);
 				count_instr(r->opcode);
+#ifdef __LIBRETRO__
+				if (e9k_debug_instructionHook(r->instruction_pc, (uae_u16)r->opcode)) {
+					exit = true;
+					continue;
+				}
+#endif
 
 #ifdef DEBUGGER
 				if (debug_opcode_watch) {
@@ -6793,7 +6833,9 @@ void m68k_go (int may_quit)
 
 		set_x_funcs();
 		if (hardboot) {
-			custom_prepare();
+			if (!restored) {
+				custom_prepare();
+			}
 			mman_set_barriers(false);
 			protect_roms(true);
 		}
@@ -6825,6 +6867,13 @@ void m68k_go (int may_quit)
 		if (restored) {
 			restored = 0;
 			savestate_restore_final();
+#ifdef __LIBRETRO__
+			// wasm_unserialize: stop the upcoming run_func() call below from
+			// executing any instructions, so retro_unserialize() leaves the
+			// CPU exactly where the snapshot was taken (see
+			// e9k_debug_request_break_before_next_instr).
+			e9k_debug_request_break_before_next_instr();
+#endif
 		}
 #endif
 
