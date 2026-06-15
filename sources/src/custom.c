@@ -14716,6 +14716,9 @@ static void hsync_handler(void)
 	hsync_handler_post(vs);
 #ifdef __LIBRETRO__
 	e9k_hsync_notify();
+	if (vs) {
+		e9k_debug_frame_boundary_notify();
+	}
 #endif
 }
 
