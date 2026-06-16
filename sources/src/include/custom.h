@@ -92,11 +92,10 @@ extern void e9k_get_custom_regs_raw(uae_u8 *out);
 // implement "run to end of line" (eol) stepping.
 extern void e9k_hsync_notify(void);
 
-// e9k-debugger: called from hsync_handler() (custom.c) on the scanline
-// where a new frame's vblank starts — including during replay. Drives
-// e9k_debug_replay_scan_frame (see e9k_debug.h), used to implement
-// "step back a frame" (stepBackFrame).
-extern void e9k_debug_frame_boundary_notify(void);
+// Called from hsync_handler() (custom.c) on the scanline where a new frame's
+// vblank starts — including during replay. Drives puae_debug_replay_scan_frame
+// (see puae_debug.h), used to implement "step back a frame" (stepBackFrame).
+extern void puae_debug_frame_boundary_notify(void);
 
 // e9k-debugger: see definition in custom.c for index meanings. Diagnostics
 // for the bitplane-DMA fetch prediction/scheduling state used by

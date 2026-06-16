@@ -23,10 +23,10 @@
 #ifdef __LIBRETRO__
 extern bool libretro_frame_end;
 
-// e9k-debugger hooks (see e9k/e9k_debug.h, e9k/e9k_catchpoint.h for full docs).
+// Debugger hooks (see e9k/e9k_debug.h and puae_debug.h for full docs).
 extern int e9k_debug_instructionHook(uaecptr pc, uae_u16 opcode);
-extern void e9k_debug_check_catchpoint(uint32_t vector, uint32_t pc);
-extern void e9k_debug_request_break_before_next_instr(void);
+extern void puae_debug_check_catchpoint(uint32_t vector, uint32_t pc);
+extern void puae_debug_request_break_before_next_instr(void);
 #endif
 
 #include "options.h"
@@ -3490,7 +3490,7 @@ static void ExceptionX (int nr, uaecptr address, uaecptr oldpc)
 	debug_exception(nr);
 #endif
 #ifdef __LIBRETRO__
-	e9k_debug_check_catchpoint((uint32_t)nr, (uint32_t)pc);
+	puae_debug_check_catchpoint((uint32_t)nr, (uint32_t)pc);
 #endif
 	m68k_resumestopped();
 
@@ -6871,8 +6871,8 @@ void m68k_go (int may_quit)
 			// wasm_unserialize: stop the upcoming run_func() call below from
 			// executing any instructions, so retro_unserialize() leaves the
 			// CPU exactly where the snapshot was taken (see
-			// e9k_debug_request_break_before_next_instr).
-			e9k_debug_request_break_before_next_instr();
+			// puae_debug_request_break_before_next_instr in puae_debug.h).
+			puae_debug_request_break_before_next_instr();
 #endif
 		}
 #endif

@@ -14717,7 +14717,7 @@ static void hsync_handler(void)
 #ifdef __LIBRETRO__
 	e9k_hsync_notify();
 	if (vs) {
-		e9k_debug_frame_boundary_notify();
+		puae_debug_frame_boundary_notify();
 	}
 #endif
 }
@@ -15342,8 +15342,8 @@ writeonly:
 			// peek_memory) must not have side effects on emulated hardware
 			// state: skip the real-hardware "reading a write-only register
 			// echoes the last chip bus value back as a write" behavior.
-			extern int e9k_debug_inspect_active;
-			if (e9k_debug_inspect_active) {
+			extern int puae_debug_inspect_active;
+			if (puae_debug_inspect_active) {
 				return v;
 			}
 		}
