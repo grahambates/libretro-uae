@@ -6081,6 +6081,12 @@ static void m68k_run_3ce (void)
 					debug_trainer_match();
 				}
 #endif
+#ifdef __LIBRETRO__
+				if (e9k_debug_instructionHook(r->instruction_pc, (uae_u16)r->opcode)) {
+					exit = true;
+					continue;
+				}
+#endif
 				(*cpufunctbl_noret[r->opcode])(r->opcode);
 
 				if (r->spcflags) {
@@ -6129,6 +6135,12 @@ static void m68k_run_3p(void)
 #ifdef DEBUGGER
 				if (debug_opcode_watch) {
 					debug_trainer_match();
+				}
+#endif
+#ifdef __LIBRETRO__
+				if (e9k_debug_instructionHook(r->instruction_pc, (uae_u16)r->opcode)) {
+					exit = true;
+					continue;
 				}
 #endif
 
@@ -6271,9 +6283,15 @@ static void m68k_run_2ce (void)
 					debug_trainer_match();
 				}
 #endif
+#ifdef __LIBRETRO__
+				if (e9k_debug_instructionHook(r->instruction_pc, (uae_u16)r->opcode)) {
+					exit = true;
+					continue;
+				}
+#endif
 
 				(*cpufunctbl_noret[r->opcode])(r->opcode);
-		
+
 				wait_memory_cycles();
 				regs.instruction_cnt++;
 				regs.ce020extracycles++;
@@ -6397,6 +6415,12 @@ static void m68k_run_2p (void)
 #ifdef DEBUGGER
 				if (debug_opcode_watch) {
 					debug_trainer_match();
+				}
+#endif
+#ifdef __LIBRETRO__
+				if (e9k_debug_instructionHook(r->instruction_pc, (uae_u16)r->opcode)) {
+					exit = true;
+					continue;
 				}
 #endif
 
