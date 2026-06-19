@@ -316,6 +316,9 @@ extern void record_dma_ipl_sample(int hpos, int vpos);
 extern void record_dma_denise(int pos, int dhpos);
 extern void debug_mark_refreshed(uaecptr);
 extern void debug_draw(uae_u8 *buf, int bpp, int line, int width, int height, uae_u32 *xredcolors, uae_u32 *xgreencolors, uae_u32 *xbluescolors);
+extern uint32_t e9k_dma_serialize(uint8_t *out);
+extern void e9k_dma_set_channel_enabled(int type, int enabled);
+extern void e9k_dma_draw_overlay(uint8_t *rgba, int width, int height, int opacity);
 
 #define TRACE_SKIP_INS 1
 #define TRACE_MATCH_PC 2

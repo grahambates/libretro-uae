@@ -8849,8 +8849,9 @@ uint32_t e9k_dma_serialize(uint8_t *out)
 					flags |= 1;              /* DMA_WRITE */
 					addr = dr->reg & 0x1feU; /* bare register offset */
 				}
-			} else if (atype == DMARECORD_CPU || atype == DMARECORD_DISK) {
-				flags = 1; /* DMA_WRITE */
+			} else if (atype == DMARECORD_CPU) {
+				if ((dr->extra & 1) == 0)
+					flags = 4; /* DMA_CODE: instruction fetch (extra=0); data access (extra=1) stays 0 */
 			} else if (atype == DMARECORD_BLITTER && (dr->extra & 7) == 3) {
 				flags = 1; /* DMA_WRITE: blitter D channel (CE mode) */
 			}
@@ -8867,4 +8868,74 @@ uint32_t e9k_dma_serialize(uint8_t *out)
 		}
 	}
 	return (uint32_t)(E9K_DMA_HPOS * E9K_DMA_VPOS * 8);
+}
+
+/* e9k: live DMA overlay — composites DMA activity onto the RGBA framebuffer.
+   Called from shim_video_refresh() each frame when the overlay is enabled.
+   type indices match DMARECORD_* (0=idle/off, 1=REFRESH … 9=CONFLICT). */
+
+static const uint8_t e9k_overlay_rgb[DMARECORD_MAX][3] = {
+	{0x22, 0x22, 0x22},  /* 0 idle      (not drawn) */
+	{0x44, 0x44, 0x44},  /* 1 REFRESH   */
+	{0xa2, 0x53, 0x42},  /* 2 CPU       */
+	{0xee, 0xee, 0x00},  /* 3 COPPER    */
+	{0xff, 0x00, 0x00},  /* 4 AUDIO     */
+	{0x00, 0x88, 0x88},  /* 5 BLITTER   */
+	{0x00, 0x00, 0xff},  /* 6 BITPLANE  */
+	{0xff, 0x00, 0xff},  /* 7 SPRITE    */
+	{0xff, 0xff, 0xff},  /* 8 DISK      */
+	{0xff, 0xb8, 0x40},  /* 9 CONFLICT  */
+};
+
+static int e9k_overlay_channel_enabled[DMARECORD_MAX] = {
+	1, 1, 1, 1, 1, 1, 1, 1, 1, 1
+};
+
+void e9k_dma_set_channel_enabled(int type, int enabled)
+{
+	if (type >= 0 && type < DMARECORD_MAX)
+		e9k_overlay_channel_enabled[type] = enabled ? 1 : 0;
+}
+
+void e9k_dma_draw_overlay(uint8_t *rgba, int width, int height, int opacity)
+{
+	if (!dma_record[0] || opacity <= 0) return;
+	if (opacity > 255) opacity = 255;
+
+	int t = dma_record_toggle ^ 1; /* last completed frame */
+
+	for (int v = 0; v < E9K_DMA_VPOS; v++) {
+		/* Fill the full pixel rect that this DMA row maps to */
+		int y0 = v * height / E9K_DMA_VPOS;
+		int y1 = (v + 1) * height / E9K_DMA_VPOS;
+		if (y0 >= height) continue;
+		if (y1 > height) y1 = height;
+		if (y1 <= y0) y1 = y0 + 1;
+
+		for (int h = 0; h < E9K_DMA_HPOS; h++) {
+			struct dma_rec *dr = &dma_record[t][v * NR_DMA_REC_HPOS + h];
+			if (dr->reg == 0xffff) continue;
+
+			int atype = dr->type < 0 ? -dr->type : dr->type;
+			if (atype <= 0 || atype >= DMARECORD_MAX) continue;
+			if (!e9k_overlay_channel_enabled[atype]) continue;
+
+			int x0 = h * width / E9K_DMA_HPOS;
+			int x1 = (h + 1) * width / E9K_DMA_HPOS;
+			if (x0 >= width) continue;
+			if (x1 > width) x1 = width;
+			if (x1 <= x0) x1 = x0 + 1;
+
+			const uint8_t *c = e9k_overlay_rgb[atype];
+			for (int py = y0; py < y1; py++) {
+				uint8_t *row = rgba + py * width * 4;
+				for (int px = x0; px < x1; px++) {
+					uint8_t *p = row + px * 4;
+					p[0] = (uint8_t)((c[0] * opacity + p[0] * (255 - opacity)) >> 8);
+					p[1] = (uint8_t)((c[1] * opacity + p[1] * (255 - opacity)) >> 8);
+					p[2] = (uint8_t)((c[2] * opacity + p[2] * (255 - opacity)) >> 8);
+				}
+			}
+		}
+	}
 }
