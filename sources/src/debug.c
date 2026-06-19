@@ -8797,3 +8797,74 @@ bool debug_sprintf(uaecptr addr, uae_u32 val, int size)
 	}
 	return true;
 }
+
+/* e9k: serialize last completed frame's DMA records → vAmiga Cell[8] format.
+   Cell: { u8 owner, u8 flags, u16 data_LE, u32 addr_LE } = 8 bytes.
+   Output is E9K_DMA_HPOS * E9K_DMA_VPOS cells; returns byte count or 0. */
+#define E9K_DMA_HPOS 227
+#define E9K_DMA_VPOS 313
+
+static const uint8_t e9k_type_to_owner[10] = {
+	0, 2, 1, 22, 0, 23, 0, 0, 3, 0
+	/* 0:none  1:REFRESH→2  2:CPU→1  3:COPPER→22
+	   4:AUDIO→var  5:BLITTER→23  6:BPL→var  7:SPR→var
+	   8:DISK→3  9:CONFLICT→0 */
+};
+
+uint32_t e9k_dma_serialize(uint8_t *out)
+{
+	if (!dma_record[0]) return 0;
+	int t = dma_record_toggle ^ 1; /* last completed frame */
+	uint8_t *p = out;
+
+	for (int v = 0; v < E9K_DMA_VPOS; v++) {
+		for (int h = 0; h < E9K_DMA_HPOS; h++) {
+			struct dma_rec *dr = &dma_record[t][v * NR_DMA_REC_HPOS + h];
+
+			if (dr->reg == 0xffff) {
+				memset(p, 0, 8);
+				p += 8;
+				continue;
+			}
+
+			int atype = dr->type < 0 ? -dr->type : dr->type;
+			uint8_t owner = 0;
+			if (atype < 10) {
+				owner = e9k_type_to_owner[atype];
+				if (owner == 0 && atype != 0 && atype != 9) {
+					if (atype == 4) owner = 4 + (dr->extra & 3);        /* AUD0-3 */
+					else if (atype == 6) owner = 8 + (dr->extra & 7);   /* BPL1-6 */
+					else if (atype == 7) owner = 14 + (dr->extra & 7);  /* SPR0-7 */
+				}
+			}
+
+			uint8_t flags = 0;
+			uint32_t addr = dr->addr;
+			uint16_t data = (uint16_t)(dr->dat & 0xffff);
+
+			if (atype == DMARECORD_COPPER) {
+				uint8_t sub = dr->extra & 3; /* 0=MOVE, 1=WAIT, 2=SKIP */
+				flags = (uint8_t)(sub << 3); /* bits 3-4 = COP_SUB_* */
+				if (sub == 0) {
+					flags |= 1;              /* DMA_WRITE */
+					addr = dr->reg & 0x1feU; /* bare register offset */
+				}
+			} else if (atype == DMARECORD_CPU || atype == DMARECORD_DISK) {
+				flags = 1; /* DMA_WRITE */
+			} else if (atype == DMARECORD_BLITTER && (dr->extra & 7) == 3) {
+				flags = 1; /* DMA_WRITE: blitter D channel (CE mode) */
+			}
+
+			p[0] = owner;
+			p[1] = flags;
+			p[2] = data & 0xff;
+			p[3] = (data >> 8) & 0xff;
+			p[4] = addr & 0xff;
+			p[5] = (addr >> 8) & 0xff;
+			p[6] = (addr >> 16) & 0xff;
+			p[7] = (addr >> 24) & 0xff;
+			p += 8;
+		}
+	}
+	return (uint32_t)(E9K_DMA_HPOS * E9K_DMA_VPOS * 8);
+}
