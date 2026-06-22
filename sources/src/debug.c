@@ -8887,8 +8887,13 @@ static const uint8_t e9k_overlay_rgb[DMARECORD_MAX][3] = {
 	{0xff, 0xb8, 0x40},  /* 9 CONFLICT  */
 };
 
+// Opt-in: the JS panel (puae_app.js) starts every channel button unselected
+// and only calls wasm_dma_overlay_set_channel() for ones the user clicks, so
+// the C-side default must match — otherwise channels never explicitly
+// toggled (e.g. COPPER/SPRITE, which are usually active) show up as soon as
+// any other channel turns the overlay on.
 static int e9k_overlay_channel_enabled[DMARECORD_MAX] = {
-	1, 1, 1, 1, 1, 1, 1, 1, 1, 1
+	0, 0, 0, 0, 0, 0, 0, 0, 0, 0
 };
 
 void e9k_dma_set_channel_enabled(int type, int enabled)

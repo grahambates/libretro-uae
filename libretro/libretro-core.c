@@ -219,6 +219,18 @@ static int retro_diwstartstop_counter = 0;
 extern int visible_left_border;
 static int visible_left_border_old = 0;
 
+// e9k: set by wasm_dma_overlay_enable() (ami_debug.c) whenever any DMA debug
+// overlay channel is active. The overlay's hpos/vpos coordinate space
+// (e9k_dma_draw_overlay, debug.c) covers the full raw PAL raster — but the
+// normal output path centers/crops the buffer (retrox_crop/retroy_crop,
+// retrow_crop/retroh_crop) onto just the active display window, so column 0/
+// row 0 of the reported buffer doesn't correspond to hpos=0/vpos=0, throwing
+// the overlay out of alignment with the picture. While the overlay is on,
+// bypass that centering/crop entirely and report the full unshifted
+// retrow x retroh buffer (720x574 PAL — matches vAmigaWeb's own full-overscan
+// reference size) so the overlay's proportional mapping lines up.
+extern int g_dmaOverlayEnabled;
+
 #define PAL_KS2_CROP_SAFE_FIRST_LINE  99
 #define PAL_KS2_CROP_SAFE_LAST_LINE   244
 #define NTSC_KS2_CROP_SAFE_FIRST_LINE 71
@@ -3357,6 +3369,21 @@ static void retro_set_geometry(unsigned video_config, bool init)
          w = PUAE_VIDEO_WIDTH * 2;
          h = PUAE_VIDEO_HEIGHT_NTSC;
          break;
+   }
+
+   // e9k: while the DMA overlay is active, report the true full raw PAL
+   // raster (912x626 — matches vAmiga's own full-overscan HPIXELS x
+   // VPIXELS*2 reference) instead of the normal preset, so every DMA cycle
+   // e9k_dma_draw_overlay (debug.c) records — including audio/sprite
+   // fetches that happen in horizontal/vertical blanking — has a pixel to
+   // land on. wasm_dma_overlay_enable() (ami_debug.c) pairs this with
+   // crop_id = CROP_NONE so the crop logic below doesn't shrink it back
+   // down, and OVERSCANMODE_ULTRA so drawing.c actually renders that far
+   // into the border instead of leaving it blank.
+   if (g_dmaOverlayEnabled)
+   {
+      w = 912;
+      h = 626;
    }
 
    if (init)
@@ -8624,7 +8651,10 @@ void retro_run(void)
    if ((!retro_statusbar && opt_statusbar & STATUSBAR_MESSAGES && statusbar_message_timer) || retro_statusbar)
       print_statusbar();
 
-   video_cb((old_frame) ? NULL : retro_bmp + retro_bmp_offset, retrow_crop, retroh_crop, retrow << (pix_bytes >> 1));
+   if (g_dmaOverlayEnabled)
+      video_cb((old_frame) ? NULL : retro_bmp, retrow, retroh, retrow << (pix_bytes >> 1));
+   else
+      video_cb((old_frame) ? NULL : retro_bmp + retro_bmp_offset, retrow_crop, retroh_crop, retrow << (pix_bytes >> 1));
    upload_output_audio_buffer();
 
    if (old_frame)
