@@ -335,61 +335,99 @@ MEMORY_CHECK(name); \
 MEMORY_XLATE(name);
 
 
+/* e9k debug memory-access hooks (see puae-wasm/e9k/e9k_debug.h) — mirrors the
+ * hand-written hooks in chipmem_lget/wget/bget/lput/wput/bput (memory.c) so
+ * fastmem/z3fastmem/romboardmem (generated here) get the same watchpoint/
+ * protect/memprotect coverage as chip RAM. */
+extern void e9k_debug_memhook_afterRead(uint32_t addr24, uint32_t value, uint32_t sizeBits);
+extern int  e9k_debug_memhook_filterWrite(uint32_t addr24, uint32_t sizeBits, uint32_t oldValue, int oldValueValid, uint32_t *inoutValue);
+extern void e9k_debug_memhook_afterWrite(uint32_t addr24, uint32_t value, uint32_t oldValue, uint32_t sizeBits, int oldValueValid);
+
 #define MEMORY_ARRAY_LGET(name, index) \
 static uae_u32 REGPARAM3 name ## index ## _lget (uaecptr) REGPARAM; \
 static uae_u32 REGPARAM2 name ## index ## _lget (uaecptr addr) \
 { \
 	uae_u8 *m; \
+	uae_u32 v; \
+	uaecptr addr24 = addr; \
 	addr -= name ## _bank[index].startaccessmask; \
 	addr &= name ## _bank[index].mask; \
 	m = name ## _bank[index].baseaddr + addr; \
-	return do_get_mem_long ((uae_u32 *)m); \
+	v = do_get_mem_long ((uae_u32 *)m); \
+	e9k_debug_memhook_afterRead(addr24, v, 32); \
+	return v; \
 }
 #define MEMORY_ARRAY_WGET(name, index) \
 static uae_u32 REGPARAM3 name ## index ## _wget (uaecptr) REGPARAM; \
 static uae_u32 REGPARAM2 name ## index ## _wget (uaecptr addr) \
 { \
 	uae_u8 *m; \
+	uae_u32 v; \
+	uaecptr addr24 = addr; \
 	addr -= name ## _bank[index].startaccessmask; \
 	addr &= name ## _bank[index].mask; \
 	m = name ## _bank[index].baseaddr + addr; \
-	return do_get_mem_word ((uae_u16 *)m); \
+	v = do_get_mem_word ((uae_u16 *)m); \
+	e9k_debug_memhook_afterRead(addr24, v, 16); \
+	return v; \
 }
 #define MEMORY_ARRAY_BGET(name, index) \
 static uae_u32 REGPARAM3 name ## index ## _bget (uaecptr) REGPARAM; \
 static uae_u32 REGPARAM2 name ## index ## _bget (uaecptr addr) \
 { \
+	uae_u32 v; \
+	uaecptr addr24 = addr; \
 	addr -= name ## _bank[index].startaccessmask; \
 	addr &= name ## _bank[index].mask; \
-	return name ## _bank[index].baseaddr[addr]; \
+	v = name ## _bank[index].baseaddr[addr]; \
+	e9k_debug_memhook_afterRead(addr24, v, 8); \
+	return v; \
 }
 #define MEMORY_ARRAY_LPUT(name, index) \
 static void REGPARAM3 name ## index ## _lput (uaecptr, uae_u32) REGPARAM; \
 static void REGPARAM2 name ## index ## _lput (uaecptr addr, uae_u32 l) \
 { \
 	uae_u8 *m;  \
+	uae_u32 oldValue, newValue; \
+	uaecptr addr24 = addr; \
 	addr -= name ## _bank[index].startaccessmask; \
 	addr &= name ## _bank[index].mask; \
 	m = name ## _bank[index].baseaddr + addr; \
-	do_put_mem_long ((uae_u32 *)m, l); \
+	oldValue = do_get_mem_long ((uae_u32 *)m); \
+	newValue = l; \
+	e9k_debug_memhook_filterWrite(addr24, 32, oldValue, 1, &newValue); \
+	do_put_mem_long ((uae_u32 *)m, newValue); \
+	e9k_debug_memhook_afterWrite(addr24, newValue, oldValue, 32, 1); \
 }
 #define MEMORY_ARRAY_WPUT(name, index) \
 static void REGPARAM3 name ## index ## _wput (uaecptr, uae_u32) REGPARAM; \
 static void REGPARAM2 name ## index ## _wput (uaecptr addr, uae_u32 w) \
 { \
 	uae_u8 *m;  \
+	uae_u32 oldValue, newValue; \
+	uaecptr addr24 = addr; \
 	addr -= name ## _bank[index].startaccessmask; \
 	addr &= name ## _bank[index].mask; \
 	m = name ## _bank[index].baseaddr + addr; \
-	do_put_mem_word ((uae_u16 *)m, w); \
+	oldValue = do_get_mem_word ((uae_u16 *)m); \
+	newValue = w; \
+	e9k_debug_memhook_filterWrite(addr24, 16, oldValue, 1, &newValue); \
+	do_put_mem_word ((uae_u16 *)m, newValue); \
+	e9k_debug_memhook_afterWrite(addr24, newValue, oldValue, 16, 1); \
 }
 #define MEMORY_ARRAY_BPUT(name, index) \
 static void REGPARAM3 name ## index ## _bput (uaecptr, uae_u32) REGPARAM; \
 static void REGPARAM2 name ## index ## _bput (uaecptr addr, uae_u32 b) \
 { \
+	uae_u32 oldValue, newValue; \
+	uaecptr addr24 = addr; \
 	addr -= name ## _bank[index].startaccessmask; \
 	addr &= name ## _bank[index].mask; \
-	name ## _bank[index].baseaddr[addr] = b; \
+	oldValue = name ## _bank[index].baseaddr[addr]; \
+	newValue = b; \
+	e9k_debug_memhook_filterWrite(addr24, 8, oldValue, 1, &newValue); \
+	name ## _bank[index].baseaddr[addr] = (uae_u8)newValue; \
+	e9k_debug_memhook_afterWrite(addr24, newValue, oldValue, 8, 1); \
 }
 #define MEMORY_ARRAY_CHECK(name, index) \
 static int REGPARAM3 name ## index ## _check (uaecptr addr, uae_u32 size) REGPARAM; \
