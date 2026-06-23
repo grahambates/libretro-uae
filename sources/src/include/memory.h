@@ -341,7 +341,7 @@ MEMORY_XLATE(name);
  * protect/memprotect coverage as chip RAM. */
 extern void e9k_debug_memhook_afterRead(uint32_t addr24, uint32_t value, uint32_t sizeBits);
 extern int  e9k_debug_memhook_filterWrite(uint32_t addr24, uint32_t sizeBits, uint32_t oldValue, int oldValueValid, uint32_t *inoutValue);
-extern void e9k_debug_memhook_afterWrite(uint32_t addr24, uint32_t value, uint32_t oldValue, uint32_t sizeBits, int oldValueValid);
+extern void e9k_debug_memhook_afterWrite(uint32_t addr24, uint32_t value, uint32_t oldValue, uint32_t sizeBits, int oldValueValid, uint32_t source);
 
 #define MEMORY_ARRAY_LGET(name, index) \
 static uae_u32 REGPARAM3 name ## index ## _lget (uaecptr) REGPARAM; \
@@ -397,7 +397,7 @@ static void REGPARAM2 name ## index ## _lput (uaecptr addr, uae_u32 l) \
 	newValue = l; \
 	e9k_debug_memhook_filterWrite(addr24, 32, oldValue, 1, &newValue); \
 	do_put_mem_long ((uae_u32 *)m, newValue); \
-	e9k_debug_memhook_afterWrite(addr24, newValue, oldValue, 32, 1); \
+	e9k_debug_memhook_afterWrite(addr24, newValue, oldValue, 32, 1, 0 /* E9K_MEMPROTECT_SOURCE_CPU */); \
 }
 #define MEMORY_ARRAY_WPUT(name, index) \
 static void REGPARAM3 name ## index ## _wput (uaecptr, uae_u32) REGPARAM; \
@@ -413,7 +413,7 @@ static void REGPARAM2 name ## index ## _wput (uaecptr addr, uae_u32 w) \
 	newValue = w; \
 	e9k_debug_memhook_filterWrite(addr24, 16, oldValue, 1, &newValue); \
 	do_put_mem_word ((uae_u16 *)m, newValue); \
-	e9k_debug_memhook_afterWrite(addr24, newValue, oldValue, 16, 1); \
+	e9k_debug_memhook_afterWrite(addr24, newValue, oldValue, 16, 1, 0 /* E9K_MEMPROTECT_SOURCE_CPU */); \
 }
 #define MEMORY_ARRAY_BPUT(name, index) \
 static void REGPARAM3 name ## index ## _bput (uaecptr, uae_u32) REGPARAM; \
@@ -427,7 +427,7 @@ static void REGPARAM2 name ## index ## _bput (uaecptr addr, uae_u32 b) \
 	newValue = b; \
 	e9k_debug_memhook_filterWrite(addr24, 8, oldValue, 1, &newValue); \
 	name ## _bank[index].baseaddr[addr] = (uae_u8)newValue; \
-	e9k_debug_memhook_afterWrite(addr24, newValue, oldValue, 8, 1); \
+	e9k_debug_memhook_afterWrite(addr24, newValue, oldValue, 8, 1, 0 /* E9K_MEMPROTECT_SOURCE_CPU */); \
 }
 #define MEMORY_ARRAY_CHECK(name, index) \
 static int REGPARAM3 name ## index ## _check (uaecptr addr, uae_u32 size) REGPARAM; \

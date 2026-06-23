@@ -718,7 +718,7 @@ void REGPARAM2 chipmem_bput_limit(uaecptr addr, uae_u32 b)
 /* e9k debug memory-access hooks (see spike-puae-wasm/e9k/e9k_debug.h) */
 extern void e9k_debug_memhook_afterRead(uint32_t addr24, uint32_t value, uint32_t sizeBits);
 extern int  e9k_debug_memhook_filterWrite(uint32_t addr24, uint32_t sizeBits, uint32_t oldValue, int oldValueValid, uint32_t *inoutValue);
-extern void e9k_debug_memhook_afterWrite(uint32_t addr24, uint32_t value, uint32_t oldValue, uint32_t sizeBits, int oldValueValid);
+extern void e9k_debug_memhook_afterWrite(uint32_t addr24, uint32_t value, uint32_t oldValue, uint32_t sizeBits, int oldValueValid, uint32_t source);
 
 static uae_u32 REGPARAM2 chipmem_lget (uaecptr addr)
 {
@@ -763,7 +763,7 @@ void REGPARAM2 chipmem_lput (uaecptr addr, uae_u32 l)
 	newValue = l;
 	e9k_debug_memhook_filterWrite(addr, 32, oldValue, 1, &newValue);
 	do_put_mem_long (m, newValue);
-	e9k_debug_memhook_afterWrite(addr, newValue, oldValue, 32, 1);
+	e9k_debug_memhook_afterWrite(addr, newValue, oldValue, 32, 1, 0 /* E9K_MEMPROTECT_SOURCE_CPU */);
 }
 
 void REGPARAM2 chipmem_wput (uaecptr addr, uae_u32 w)
@@ -777,7 +777,7 @@ void REGPARAM2 chipmem_wput (uaecptr addr, uae_u32 w)
 	newValue = w;
 	e9k_debug_memhook_filterWrite(addr, 16, oldValue, 1, &newValue);
 	do_put_mem_word (m, newValue);
-	e9k_debug_memhook_afterWrite(addr, newValue, oldValue, 16, 1);
+	e9k_debug_memhook_afterWrite(addr, newValue, oldValue, 16, 1, 0 /* E9K_MEMPROTECT_SOURCE_CPU */);
 }
 
 void REGPARAM2 chipmem_bput (uaecptr addr, uae_u32 b)
@@ -789,7 +789,7 @@ void REGPARAM2 chipmem_bput (uaecptr addr, uae_u32 b)
 	newValue = b;
 	e9k_debug_memhook_filterWrite(addr, 8, oldValue, 1, &newValue);
 	chipmem_bank.baseaddr[addr] = (uae_u8)newValue;
-	e9k_debug_memhook_afterWrite(addr, newValue, oldValue, 8, 1);
+	e9k_debug_memhook_afterWrite(addr, newValue, oldValue, 8, 1, 0 /* E9K_MEMPROTECT_SOURCE_CPU */);
 }
 
 /* cpu chipmem access inside agnus addressable ram but no ram available */
@@ -866,20 +866,35 @@ static void REGPARAM2 chipmem_agnus_lput (uaecptr addr, uae_u32 l)
 void REGPARAM2 chipmem_agnus_wput (uaecptr addr, uae_u32 w)
 {
 	uae_u16 *m;
+	uae_u32 oldValue, newValue;
 
 	addr &= chipmem_full_mask;
 	if (addr >= chipmem_full_size - 1)
 		return;
 	m = (uae_u16 *)(chipmem_bank.baseaddr + addr);
-	do_put_mem_word (m, w);
+	/* [vscode-vamiga-debugger mem protect] Mirrors chipmem_wput's hooks —
+	   this is the DMA/Agnus write path (Blitter, disk DMA), which the CPU
+	   path's hooks never see since they're entirely separate functions. */
+	oldValue = do_get_mem_word (m);
+	newValue = w;
+	e9k_debug_memhook_filterWrite(addr, 16, oldValue, 1, &newValue);
+	do_put_mem_word (m, newValue);
+	e9k_debug_memhook_afterWrite(addr, newValue, oldValue, 16, 1, 1 /* E9K_MEMPROTECT_SOURCE_DMA */);
 }
 
 static void REGPARAM2 chipmem_agnus_bput (uaecptr addr, uae_u32 b)
 {
+	uae_u32 oldValue, newValue;
+
 	addr &= chipmem_full_mask;
 	if (addr >= chipmem_full_size)
 		return;
-	chipmem_bank.baseaddr[addr] = b;
+	/* [vscode-vamiga-debugger mem protect] See chipmem_agnus_wput above. */
+	oldValue = chipmem_bank.baseaddr[addr];
+	newValue = b;
+	e9k_debug_memhook_filterWrite(addr, 8, oldValue, 1, &newValue);
+	chipmem_bank.baseaddr[addr] = (uae_u8)newValue;
+	e9k_debug_memhook_afterWrite(addr, newValue, oldValue, 8, 1, 1 /* E9K_MEMPROTECT_SOURCE_DMA */);
 }
 
 static int REGPARAM2 chipmem_check (uaecptr addr, uae_u32 size)
