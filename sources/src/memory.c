@@ -2094,13 +2094,45 @@ err:
 	return 0;
 }
 
+// While a watchpoint or memory-protect range is active, ABFLAG_DIRECTACCESS
+// banks (chip/fast/bogo RAM, ROM, under the common non-cycle-exact and
+// cycle-exact CPU configs alike) must not take the raw-pointer fast path in
+// memory_get_long/word/byte and memory_put_long/word/byte — that path skips
+// the bank's lget/lput/etc (and therefore e9k_debug_memhook_afterRead/Write)
+// entirely. This mirrors WinUAE's own debugger, which achieves the same
+// thing by swapping out bank function pointers while memwatch is active.
+static int e9k_debug_directAccessSuppressed = 0;
+
 static void set_direct_memory(addrbank *ab)
 {
 	if (!(ab->flags & ABFLAG_DIRECTACCESS))
 		return;
+	if (e9k_debug_directAccessSuppressed) {
+		ab->baseaddr_direct_r = NULL;
+		ab->baseaddr_direct_w = NULL;
+		return;
+	}
 	ab->baseaddr_direct_r = ab->baseaddr;
 	if (!(ab->flags & ABFLAG_ROM))
 		ab->baseaddr_direct_w = ab->baseaddr;
+}
+
+// Re-applies set_direct_memory's policy to every currently mapped bank —
+// needed because banks are normally only set up once at allocation time,
+// before any watchpoint could exist. Called whenever the watchpoint/protect
+// enabled mask transitions to/from empty.
+void e9k_debug_set_direct_access_suppressed(int suppressed)
+{
+	if (suppressed == e9k_debug_directAccessSuppressed) {
+		return;
+	}
+	e9k_debug_directAccessSuppressed = suppressed;
+	for (int i = 0; i < MEMORY_BANKS; i++) {
+		addrbank *ab = mem_banks[i];
+		if (ab) {
+			set_direct_memory(ab);
+		}
+	}
 }
 
 #ifndef NATMEM_OFFSET
@@ -4104,6 +4136,11 @@ uae_u32 memory_get_wordi(uaecptr addr)
 		return do_get_mem_word((uae_u16*)m);
 	}
 }
+// banks flagged ABFLAG_DIRECTACCESS (chip/fast/bogo RAM under the common,
+// non-cycle-exact CPU config) skip the bank's lget/lput/etc entirely in
+// favour of a raw pointer fast path below, bypassing chipmem_lget/lput's
+// (etc) e9k_debug_memhook_* calls. Without these, watchpoints and memory
+// protection silently never fire for ordinary CPU accesses to those banks.
 uae_u32 memory_get_long(uaecptr addr)
 {
 	addrbank *ab = &get_mem_bank(addr);
@@ -4111,10 +4148,13 @@ uae_u32 memory_get_long(uaecptr addr)
 		return call_mem_get_func(ab->lget, addr);
 	} else {
 		uae_u8 *m;
+		uint32_t addr24 = addr & 0x00ffffffu;
 		addr -= ab->startaccessmask;
 		addr &= ab->mask;
 		m = ab->baseaddr_direct_r + addr;
-		return do_get_mem_long((uae_u32*)m);
+		uae_u32 v = do_get_mem_long((uae_u32*)m);
+		e9k_debug_memhook_afterRead(addr24, v, 32);
+		return v;
 	}
 }
 uae_u32 memory_get_word(uaecptr addr)
@@ -4124,10 +4164,13 @@ uae_u32 memory_get_word(uaecptr addr)
 		return call_mem_get_func(ab->wget, addr);
 	} else {
 		uae_u8 *m;
+		uint32_t addr24 = addr & 0x00ffffffu;
 		addr -= ab->startaccessmask;
 		addr &= ab->mask;
 		m = ab->baseaddr_direct_r + addr;
-		return do_get_mem_word((uae_u16*)m);
+		uae_u32 v = do_get_mem_word((uae_u16*)m);
+		e9k_debug_memhook_afterRead(addr24, v, 16);
+		return v;
 	}
 }
 uae_u32 memory_get_byte(uaecptr addr)
@@ -4137,10 +4180,13 @@ uae_u32 memory_get_byte(uaecptr addr)
 		return call_mem_get_func(ab->bget, addr);
 	} else {
 		uae_u8 *m;
+		uint32_t addr24 = addr & 0x00ffffffu;
 		addr -= ab->startaccessmask;
 		addr &= ab->mask;
 		m = ab->baseaddr_direct_r + addr;
-		return *m;
+		uae_u32 v = *m;
+		e9k_debug_memhook_afterRead(addr24, v, 8);
+		return v;
 	}
 }
 
@@ -4151,10 +4197,15 @@ void memory_put_long(uaecptr addr, uae_u32 v)
 		call_mem_put_func(ab->lput, addr, v);
 	} else {
 		uae_u8 *m;
+		uint32_t addr24 = addr & 0x00ffffffu;
 		addr -= ab->startaccessmask;
 		addr &= ab->mask;
 		m = ab->baseaddr_direct_w + addr;
-		do_put_mem_long((uae_u32*)m, v);
+		uae_u32 oldValue = do_get_mem_long((uae_u32*)m);
+		uae_u32 newValue = v;
+		e9k_debug_memhook_filterWrite(addr24, 32, oldValue, 1, &newValue);
+		do_put_mem_long((uae_u32*)m, newValue);
+		e9k_debug_memhook_afterWrite(addr24, newValue, oldValue, 32, 1, 0 /* E9K_MEMPROTECT_SOURCE_CPU */);
 	}
 }
 void memory_put_word(uaecptr addr, uae_u32 v)
@@ -4164,10 +4215,15 @@ void memory_put_word(uaecptr addr, uae_u32 v)
 		call_mem_put_func(ab->wput, addr, v);
 	} else {
 		uae_u8 *m;
+		uint32_t addr24 = addr & 0x00ffffffu;
 		addr -= ab->startaccessmask;
 		addr &= ab->mask;
 		m = ab->baseaddr_direct_w + addr;
-		do_put_mem_word((uae_u16*)m, v);
+		uae_u32 oldValue = do_get_mem_word((uae_u16*)m);
+		uae_u32 newValue = v;
+		e9k_debug_memhook_filterWrite(addr24, 16, oldValue, 1, &newValue);
+		do_put_mem_word((uae_u16*)m, newValue);
+		e9k_debug_memhook_afterWrite(addr24, newValue, oldValue, 16, 1, 0 /* E9K_MEMPROTECT_SOURCE_CPU */);
 	}
 }
 void memory_put_byte(uaecptr addr, uae_u32 v)
@@ -4177,10 +4233,15 @@ void memory_put_byte(uaecptr addr, uae_u32 v)
 		call_mem_put_func(ab->bput, addr, v);
 	} else {
 		uae_u8 *m;
+		uint32_t addr24 = addr & 0x00ffffffu;
 		addr -= ab->startaccessmask;
 		addr &= ab->mask;
 		m = ab->baseaddr_direct_w + addr;
-		*m = (uae_u8)v;
+		uae_u32 oldValue = *m;
+		uae_u32 newValue = v;
+		e9k_debug_memhook_filterWrite(addr24, 8, oldValue, 1, &newValue);
+		*m = (uae_u8)newValue;
+		e9k_debug_memhook_afterWrite(addr24, newValue, oldValue, 8, 1, 0 /* E9K_MEMPROTECT_SOURCE_CPU */);
 	}
 }
 
