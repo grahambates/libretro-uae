@@ -15262,7 +15262,19 @@ static uae_u32 REGPARAM2 custom_lgeti (uaecptr addr)
 	return custom_lget (addr);
 }
 
-static uae_u32 REGPARAM2 custom_wget_1(int hpos, uaecptr addr, int noput, bool isbyte)
+/* e9k debug memory-access hooks (see puae-wasm/e9k/e9k_debug.h) — custom
+ * chipset registers ($DFF000-$DFF1FE) get the same watchpoint/protect
+ * coverage as RAM, via thin wrappers around the two functions all custom
+ * register access funnels through (CPU and Copper writes alike — the
+ * latter already tracked via copper_access, the same DMA-vs-CPU source
+ * distinction chipmem_agnus_* uses for Blitter/disk DMA). custom_wget_1
+ * has two internal return points, hence wrapping rather than patching
+ * both inline. */
+extern void e9k_debug_memhook_afterRead(uint32_t addr24, uint32_t value, uint32_t sizeBits);
+extern int  e9k_debug_memhook_filterWrite(uint32_t addr24, uint32_t sizeBits, uint32_t oldValue, int oldValueValid, uint32_t *inoutValue);
+extern void e9k_debug_memhook_afterWrite(uint32_t addr24, uint32_t value, uint32_t oldValue, uint32_t sizeBits, int oldValueValid, uint32_t source);
+
+static uae_u32 REGPARAM2 custom_wget_1_impl(int hpos, uaecptr addr, int noput, bool isbyte)
 {
 	uae_u16 v;
 	int missing;
@@ -15412,6 +15424,13 @@ writeonly:
 	return v;
 }
 
+static uae_u32 REGPARAM2 custom_wget_1(int hpos, uaecptr addr, int noput, bool isbyte)
+{
+	uae_u32 v = custom_wget_1_impl(hpos, addr, noput, isbyte);
+	e9k_debug_memhook_afterRead(0xdff000u | (addr & 0x1feu), v, 16);
+	return v;
+}
+
 static uae_u32 custom_wget2(uaecptr addr, bool byte)
 {
 	uae_u32 v;
@@ -15467,7 +15486,7 @@ static uae_u32 REGPARAM2 custom_lget (uaecptr addr)
 		return dummy_get(addr, 4, false, 0);
 	return ((uae_u32)custom_wget(addr) << 16) | custom_wget (addr + 2);
 }
-static int REGPARAM2 custom_wput_1 (int hpos, uaecptr addr, uae_u32 value, int noget)
+static int REGPARAM2 custom_wput_1_impl (int hpos, uaecptr addr, uae_u32 value, int noget)
 {
 	uaecptr oaddr = addr;
 	addr &= 0x1FE;
@@ -15776,6 +15795,26 @@ static int REGPARAM2 custom_wput_1 (int hpos, uaecptr addr, uae_u32 value, int n
 		return 1;
 	}
 	return 0;
+}
+
+static int REGPARAM2 custom_wput_1 (int hpos, uaecptr addr, uae_u32 value, int noget)
+{
+	uint32_t addr24 = 0xdff000u | (addr & 0x1feu);
+	uint32_t oldValue = custom_storage[(addr & 0x1fe) >> 1].value;
+	uint32_t newValue = value & 0xffffu;
+	e9k_debug_memhook_filterWrite(addr24, 16, oldValue, 1, &newValue);
+	int result = custom_wput_1_impl(hpos, addr, newValue, noget);
+	if (result == 0) {
+		// result == 1 means writing here actually triggered a hardware
+		// read instead (the OCS/ECS "writing to a register with no write
+		// effect causes a read" quirk, handled in the default case above)
+		// — that path already fires its own read hook via the wrapped
+		// custom_wget_1 call, so firing a write hook here too would be a
+		// false positive: no write actually landed at this address.
+		e9k_debug_memhook_afterWrite(addr24, newValue, oldValue, 16, 1,
+			copper_access ? 1 /* E9K_MEMPROTECT_SOURCE_DMA */ : 0 /* E9K_MEMPROTECT_SOURCE_CPU */);
+	}
+	return result;
 }
 
 static void REGPARAM2 custom_wput(uaecptr addr, uae_u32 value)
