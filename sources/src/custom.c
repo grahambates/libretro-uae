@@ -15274,6 +15274,16 @@ extern void e9k_debug_memhook_afterRead(uint32_t addr24, uint32_t value, uint32_
 extern int  e9k_debug_memhook_filterWrite(uint32_t addr24, uint32_t sizeBits, uint32_t oldValue, int oldValueValid, uint32_t *inoutValue);
 extern void e9k_debug_memhook_afterWrite(uint32_t addr24, uint32_t value, uint32_t oldValue, uint32_t sizeBits, int oldValueValid, uint32_t source);
 
+// See puae_debug.h. cop_state/copper_access are static to this file, hence
+// this accessor — called from ami_debug.c's e9k_debug_watchbreakRequest
+// while handling the same custom-register write that set copper_access,
+// so the value is still current.
+uint32_t puae_debug_get_copper_pc(int *valid)
+{
+	*valid = copper_access;
+	return (uint32_t)cop_state.ip;
+}
+
 static uae_u32 REGPARAM2 custom_wget_1_impl(int hpos, uaecptr addr, int noput, bool isbyte)
 {
 	uae_u16 v;
