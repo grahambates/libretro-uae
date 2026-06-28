@@ -9022,7 +9022,11 @@ uint16_t e9k_dma_get_cell_reg(int hpos, int vpos)
    w2(u16) hpos(u16) vpos(u16). addr/w1/w2 are the instruction's start address
    and both words; hpos/vpos are the DMA-grid coordinates of the *second*
    word fetch (one cycle after the first, which is also COPPER-owned per
-   e9k_dma_get_cell_type above) — see copperHover.ts's ±1 hpos search.
+   e9k_dma_get_cell_type above) — dmaHover.ts's findCopperInstructionByAddr
+   matches a hovered cell to its instruction by comparing addr (or addr-2)
+   against this addr field, not by hpos/vpos position (the gap between an
+   instruction's two word fetches isn't reliably exactly 1 DMA cycle once
+   other channels can contend for the bus).
    Only populated while debug_copper is enabled (wasm_copper_tracking_enable)
    — see do_copper_fetch's MOVE branch, which gates record_copper() on it.
    Returns the byte count written, or 0 if no copper trace has been recorded. */
