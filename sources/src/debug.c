@@ -8870,6 +8870,88 @@ uint32_t e9k_dma_serialize(uint8_t *out)
 	return (uint32_t)(E9K_DMA_HPOS * E9K_DMA_VPOS * 8);
 }
 
+/* e9k: live single-cell DMA type query for the last completed frame, without
+   e9k_dma_serialize's full-grid Cell[] repack cost. Returns a DMARECORD_*
+   value (0 if none/out of range/no data) — used by the copper-overlay hover
+   tooltip (copperHover.ts) to confirm a hovered pixel was actually a copper
+   DMA cycle before searching the copper instruction trace below. hpos/vpos
+   are in the same 227x313 coordinate space as e9k_dma_serialize/
+   e9k_dma_draw_overlay (NR_DMA_REC_HPOS is the wider internal per-line
+   stride that both index with). */
+int e9k_dma_get_cell_type(int hpos, int vpos)
+{
+	if (!dma_record[0] || hpos < 0 || hpos >= E9K_DMA_HPOS || vpos < 0 || vpos >= E9K_DMA_VPOS)
+		return 0;
+	int t = dma_record_toggle ^ 1; /* last completed frame */
+	struct dma_rec *dr = &dma_record[t][vpos * NR_DMA_REC_HPOS + hpos];
+	if (dr->reg == 0xffff) return 0;
+	int atype = dr->type < 0 ? -dr->type : dr->type;
+	return atype;
+}
+
+/* e9k: the raw bus address dma_rec recorded for this cell — i.e. cop_state.ip
+   at the moment of that DMA cycle's fetch (see custom.c's record_dma_read
+   call sites in do_copper_fetch), UNLIKE e9k_dma_serialize's `addr` field,
+   which overwrites this with a register offset for COPPER MOVE cells (for
+   the profiler's register-tooltip use). Pairs with e9k_dma_get_cell_type:
+   for a COPPER cell, this is the address of whichever of the instruction's
+   two words was fetched on this specific DMA cycle — used by the hover
+   tooltip to match against cop_record[]'s instruction-start addr (below)
+   without assuming a fixed cycle gap between the two word fetches (which
+   isn't reliably 1 cycle apart when other DMA contends for the bus).
+   Returns 0xffffffff if out of range/no data. */
+uint32_t e9k_dma_get_cell_addr(int hpos, int vpos)
+{
+	if (!dma_record[0] || hpos < 0 || hpos >= E9K_DMA_HPOS || vpos < 0 || vpos >= E9K_DMA_VPOS)
+		return 0xffffffff;
+	int t = dma_record_toggle ^ 1; /* last completed frame */
+	struct dma_rec *dr = &dma_record[t][vpos * NR_DMA_REC_HPOS + hpos];
+	if (dr->reg == 0xffff) return 0xffffffff;
+	return (uint32_t)dr->addr;
+}
+
+/* e9k: serialize the last completed frame's copper instruction trace —
+   cop_record[] (populated by record_copper(), custom.c's do_copper_fetch),
+   which the e9k_debug breakpoint/disassembly commands already maintain but
+   never exposed to JS before. Each record is 12 bytes LE: addr(u32) w1(u16)
+   w2(u16) hpos(u16) vpos(u16). addr/w1/w2 are the instruction's start address
+   and both words; hpos/vpos are the DMA-grid coordinates of the *second*
+   word fetch (one cycle after the first, which is also COPPER-owned per
+   e9k_dma_get_cell_type above) — see copperHover.ts's ±1 hpos search.
+   Only populated while debug_copper is enabled (wasm_copper_tracking_enable)
+   — see do_copper_fetch's MOVE branch, which gates record_copper() on it.
+   Returns the byte count written, or 0 if no copper trace has been recorded. */
+#define E9K_COPPER_RECORD_BYTES 12
+#define E9K_COPPER_MAX_RECORDS 40000
+
+uint32_t e9k_copper_serialize(uint8_t *out)
+{
+	if (!cop_record[0]) return 0;
+	int t = curr_cop_set ^ 1; /* last completed frame */
+	int count = nr_cop_records[t];
+	if (count > E9K_COPPER_MAX_RECORDS) count = E9K_COPPER_MAX_RECORDS;
+
+	uint8_t *p = out;
+	for (int i = 0; i < count; i++) {
+		struct cop_rec *cr = &cop_record[t][i];
+		uint32_t addr = (uint32_t)cr->addr;
+		p[0] = addr & 0xff;
+		p[1] = (addr >> 8) & 0xff;
+		p[2] = (addr >> 16) & 0xff;
+		p[3] = (addr >> 24) & 0xff;
+		p[4] = cr->w1 & 0xff;
+		p[5] = (cr->w1 >> 8) & 0xff;
+		p[6] = cr->w2 & 0xff;
+		p[7] = (cr->w2 >> 8) & 0xff;
+		p[8] = (uint16_t)cr->hpos & 0xff;
+		p[9] = ((uint16_t)cr->hpos >> 8) & 0xff;
+		p[10] = (uint16_t)cr->vpos & 0xff;
+		p[11] = ((uint16_t)cr->vpos >> 8) & 0xff;
+		p += E9K_COPPER_RECORD_BYTES;
+	}
+	return (uint32_t)(count * E9K_COPPER_RECORD_BYTES);
+}
+
 /* e9k: live DMA overlay — composites DMA activity onto the RGBA framebuffer.
    Called from shim_video_refresh() each frame when the overlay is enabled.
    type indices match DMARECORD_* (0=idle/off, 1=REFRESH … 9=CONFLICT). */
