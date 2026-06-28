@@ -1383,6 +1383,56 @@ struct cop_rec
 static struct cop_rec *cop_record[2];
 static int nr_cop_records[2], curr_cop_set, selected_cop_set;
 
+/* e9k: log of every CPU/copper write to a custom chip register this frame —
+   addr+value+hpos+vpos, same double-buffer-per-frame pattern as cop_record
+   above. Backs the blitter-overview hover tooltip (dmaHover.ts), which
+   backward-scans this for the last write to BLTCON0/1/BLTSIZE/pointers/
+   modulos at-or-before the hovered DMA cycle, rather than reading PUAE's
+   live custom_storage shadow (which reflects whatever the *most recently
+   configured* blit set, not necessarily the one the hovered cycle belongs
+   to). Seeded each frame with a snapshot of all 256 registers' current
+   values (hpos=vpos=-1, sorting before any real in-frame position) so the
+   scan still finds a value for a register that wasn't rewritten this frame. */
+#define NR_REGWRITE_BASELINE 256
+#define NR_REGWRITE_RECORDS (NR_REGWRITE_BASELINE + 20000)
+struct regwrite_rec
+{
+	uae_u16 reg, value;
+	int hpos, vpos;
+};
+static struct regwrite_rec *regwrite_record[2];
+static int nr_regwrite_records[2], curr_regwrite_set;
+
+void record_reg_write_reset(void)
+{
+	if (!regwrite_record[0]) {
+		regwrite_record[0] = xmalloc(struct regwrite_rec, NR_REGWRITE_RECORDS);
+		regwrite_record[1] = xmalloc(struct regwrite_rec, NR_REGWRITE_RECORDS);
+	}
+	curr_regwrite_set ^= 1;
+	int t = 0;
+	for (int i = 0; i < NR_REGWRITE_BASELINE; i++, t++) {
+		regwrite_record[curr_regwrite_set][t].reg = (uae_u16)(i * 2);
+		regwrite_record[curr_regwrite_set][t].value = custom_storage[i].value;
+		regwrite_record[curr_regwrite_set][t].hpos = -1;
+		regwrite_record[curr_regwrite_set][t].vpos = -1;
+	}
+	nr_regwrite_records[curr_regwrite_set] = t;
+}
+
+void record_reg_write(uae_u16 reg, uae_u16 value, int hpos, int vpos)
+{
+	if (!regwrite_record[0]) return; /* reset hasn't run yet this session */
+	int t = nr_regwrite_records[curr_regwrite_set];
+	if (t < NR_REGWRITE_RECORDS) {
+		regwrite_record[curr_regwrite_set][t].reg = reg;
+		regwrite_record[curr_regwrite_set][t].value = value;
+		regwrite_record[curr_regwrite_set][t].hpos = hpos;
+		regwrite_record[curr_regwrite_set][t].vpos = vpos;
+		nr_regwrite_records[curr_regwrite_set] = t + 1;
+	}
+}
+
 #define NR_DMA_REC_HPOS 288
 #define NR_DMA_REC_VPOS 1000
 static struct dma_rec *dma_record[2];
@@ -8910,6 +8960,61 @@ uint32_t e9k_dma_get_cell_addr(int hpos, int vpos)
 	return (uint32_t)dr->addr;
 }
 
+/* e9k: the raw bus data dma_rec recorded for this cell (dr->dat, truncated
+   to 32 bits — the word/long actually read or written on this cycle).
+   Returns 0xffffffff if out of range/no data (ambiguous with a real
+   0xFFFFFFFF data value, but callers already gate on
+   e9k_dma_get_cell_type() != 0 first). */
+uint32_t e9k_dma_get_cell_data(int hpos, int vpos)
+{
+	if (!dma_record[0] || hpos < 0 || hpos >= E9K_DMA_HPOS || vpos < 0 || vpos >= E9K_DMA_VPOS)
+		return 0xffffffff;
+	int t = dma_record_toggle ^ 1; /* last completed frame */
+	struct dma_rec *dr = &dma_record[t][vpos * NR_DMA_REC_HPOS + hpos];
+	if (dr->reg == 0xffff) return 0xffffffff;
+	return (uint32_t)dr->dat;
+}
+
+/* e9k: the raw dr->extra sub-channel/mode bits for this cell — meaning is
+   type-specific (see the relevant record_dma_read/record_dma_write call
+   sites): for DMARECORD_BLITTER, `extra & 7` is the channel (0=A,1=B,2=C
+   reads, 3=D write) and `extra & 0x10`/`0x20` flag fill/line mode
+   (blitter.c's record_dma_blit); for DMARECORD_AUDIO/BITPLANE/SPRITE,
+   `extra & 3`/`7` is the channel/plane/sprite index (custom.c, matching
+   e9k_dma_serialize's owner computation). Returns 0xffff if out of
+   range/no data. */
+uint16_t e9k_dma_get_cell_extra(int hpos, int vpos)
+{
+	if (!dma_record[0] || hpos < 0 || hpos >= E9K_DMA_HPOS || vpos < 0 || vpos >= E9K_DMA_VPOS)
+		return 0xffff;
+	int t = dma_record_toggle ^ 1; /* last completed frame */
+	struct dma_rec *dr = &dma_record[t][vpos * NR_DMA_REC_HPOS + hpos];
+	if (dr->reg == 0xffff) return 0xffff;
+	return dr->extra;
+}
+
+/* e9k: the raw dr->reg field for this cell. For most types this is a real
+   $DFFxxx register offset, but for DMARECORD_CPU it's a *synthetic* marker
+   (custom.c's wait_cpu_cycle_read/write), not a register address:
+   0x1000|sizebits for a read, 0x1100|sizebits for a write, where sizebits
+   is 1=byte, 2=word, 4=long — i.e. `reg & 0x100` is the write flag and
+   `reg & 7` is the size. Combined with e9k_dma_get_cell_extra's `extra & 1`
+   (0 = instruction fetch, 1 = data access — meaningful for CPU reads only,
+   writes are always data) this is enough to reconstruct the profiler's CPU
+   DMA tooltip (Address/Register, Data, Access) for a live single cell.
+   Returns 0xffff if out of range/no data (ambiguous with a real register
+   value of 0xffff, but callers already gate on
+   e9k_dma_get_cell_type() != 0 first). */
+uint16_t e9k_dma_get_cell_reg(int hpos, int vpos)
+{
+	if (!dma_record[0] || hpos < 0 || hpos >= E9K_DMA_HPOS || vpos < 0 || vpos >= E9K_DMA_VPOS)
+		return 0xffff;
+	int t = dma_record_toggle ^ 1; /* last completed frame */
+	struct dma_rec *dr = &dma_record[t][vpos * NR_DMA_REC_HPOS + hpos];
+	if (dr->reg == 0xffff) return 0xffff;
+	return dr->reg;
+}
+
 /* e9k: serialize the last completed frame's copper instruction trace —
    cop_record[] (populated by record_copper(), custom.c's do_copper_fetch),
    which the e9k_debug breakpoint/disassembly commands already maintain but
@@ -8950,6 +9055,36 @@ uint32_t e9k_copper_serialize(uint8_t *out)
 		p += E9K_COPPER_RECORD_BYTES;
 	}
 	return (uint32_t)(count * E9K_COPPER_RECORD_BYTES);
+}
+
+/* e9k: serialize the last completed frame's register-write log (see
+   regwrite_record above) — reg/value/hpos/vpos per write, baseline entries
+   (hpos=vpos=-1) first. Each record is 8 bytes LE: reg(u16) value(u16)
+   hpos(i16) vpos(i16) — hpos/vpos are SIGNED so JS can tell baseline (-1)
+   apart from any real in-frame position. Returns the byte count written,
+   or 0 if the log hasn't been initialized (debug_dma never turned on). */
+#define E9K_REGWRITE_RECORD_BYTES 8
+
+uint32_t e9k_regwrite_serialize(uint8_t *out)
+{
+	if (!regwrite_record[0]) return 0;
+	int t = curr_regwrite_set ^ 1; /* last completed frame */
+	int count = nr_regwrite_records[t];
+
+	uint8_t *p = out;
+	for (int i = 0; i < count; i++) {
+		struct regwrite_rec *r = &regwrite_record[t][i];
+		p[0] = r->reg & 0xff;
+		p[1] = (r->reg >> 8) & 0xff;
+		p[2] = r->value & 0xff;
+		p[3] = (r->value >> 8) & 0xff;
+		p[4] = (uint16_t)r->hpos & 0xff;
+		p[5] = ((uint16_t)r->hpos >> 8) & 0xff;
+		p[6] = (uint16_t)r->vpos & 0xff;
+		p[7] = ((uint16_t)r->vpos >> 8) & 0xff;
+		p += E9K_REGWRITE_RECORD_BYTES;
+	}
+	return (uint32_t)(count * E9K_REGWRITE_RECORD_BYTES);
 }
 
 /* e9k: live DMA overlay — composites DMA activity onto the RGBA framebuffer.

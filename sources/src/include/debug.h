@@ -321,7 +321,13 @@ extern void e9k_dma_set_channel_enabled(int type, int enabled);
 extern void e9k_dma_draw_overlay(uint8_t *rgba, int width, int height, int opacity);
 extern int e9k_dma_get_cell_type(int hpos, int vpos);
 extern uint32_t e9k_dma_get_cell_addr(int hpos, int vpos);
+extern uint32_t e9k_dma_get_cell_data(int hpos, int vpos);
+extern uint16_t e9k_dma_get_cell_extra(int hpos, int vpos);
+extern uint16_t e9k_dma_get_cell_reg(int hpos, int vpos);
 extern uint32_t e9k_copper_serialize(uint8_t *out);
+extern void record_reg_write_reset(void);
+extern void record_reg_write(uae_u16 reg, uae_u16 value, int hpos, int vpos);
+extern uint32_t e9k_regwrite_serialize(uint8_t *out);
 
 #define TRACE_SKIP_INS 1
 #define TRACE_MATCH_PC 2

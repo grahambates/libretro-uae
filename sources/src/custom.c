@@ -12783,6 +12783,7 @@ static void vsync_handler_post(void)
 	}
 	if (debug_dma) {
 		record_dma_reset(0);
+		record_reg_write_reset();
 	}
 #endif
 
@@ -15503,6 +15504,15 @@ static int REGPARAM2 custom_wput_1_impl (int hpos, uaecptr addr, uae_u32 value, 
 	value &= 0xffff;
 	custom_storage[addr >> 1].value = (uae_u16)value;
 	custom_storage[addr >> 1].pc = copper_access ? cop_state.ip | 1 : M68K_GETPC;
+#ifdef DEBUGGER
+	/* e9k: log this write (reg/value/hpos/vpos) for the blitter-overview
+	   hover tooltip's backward-scan (dmaHover.ts) — see regwrite_record in
+	   debug.c. Covers copper-driven writes too (custom_wput_copper calls
+	   through custom_wput_1 into this same _impl). */
+	if (debug_dma) {
+		record_reg_write((uae_u16)addr, (uae_u16)value, hpos, vpos);
+	}
+#endif
 #ifdef ACTION_REPLAY
 #ifdef ACTION_REPLAY_COMMON
 	ar_custom[addr + 0]=(uae_u8)(value >> 8);
