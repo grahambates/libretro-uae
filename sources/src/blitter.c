@@ -75,6 +75,14 @@ uae_u32 bltapt, bltbpt, bltcpt, bltdpt;
 uae_u32 bltptx;
 int bltptxpos, bltptxc;
 
+/* e9k: visual-only blitter mute for the PUAE webview's channel-visibility
+   panel — mirrors debug_bpl_mask/debug_sprite_mask/audio_channel_mask
+   (drawing.c/debug.c/audio.c), gated at the single D-channel chipmem write
+   funnel below (blit_chipmem_agnus_wput) rather than skipping the blit
+   itself, so BBUSY/blit-zero/the completion interrupt and DMA timing are
+   unaffected — only the result never lands in chip memory. */
+int debug_blitter_enabled = 1;
+
 static uae_u16 blineb;
 static int blitline, blitfc, blitfill, blitife, blitdesc, blit_ovf;
 static bool blitfill_idle;
@@ -496,7 +504,8 @@ static void blit_chipmem_agnus_wput(uaecptr addr, uae_u32 w, uae_u32 typemask)
 #ifdef DEBUGGER
 		debug_putpeekdma_chipram(addr, w, typemask, 0x000, 0x054);
 #endif
-		chipmem_wput_indirect(addr, w);
+		if (debug_blitter_enabled)
+			chipmem_wput_indirect(addr, w);
 		regs.chipset_latch_rw = w;
 	}
 }
