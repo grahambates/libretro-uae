@@ -212,12 +212,12 @@ static uae_u32 cop1lc, cop2lc, copcon;
 
 /*
 * Horizontal defaults
-* 
+*
 * 0x00   0 HCB
 * 0x01   1 HC1 (HSTART)
 * 0x09   9 VR1 (HBLANK start)
 * 0x12  18 SHS (Horizontal sync start)
-* 0x1a  26 VER1 PAL 
+* 0x1a  26 VER1 PAL
 * 0x1b  27 VER1 NTSC
 * 0x23  35 RHS (Horizontal sync end)
 * 0x73 115 VR2
@@ -226,18 +226,18 @@ static uae_u32 cop1lc, cop2lc, copcon;
 * 0x8d 141 VER2 NTSC
 * 0xe2 226 HC226 (short line, selected if LOL=1, NTSC only)
 * 0xe3 227 HC227 (NTSC long line/PAL)
-* 
+*
 * SHS->VER1 = CSYNC equalising pulse 1
 * CEN->VER2 = CSYNC equalising pulse 2
-* 
+*
 * HC1->SHS = Inactivate part of CSYNC Vsync+Hsync pulse 1
 * VR2->CEN = Inactivate part of CSYNC Vsync+HSync pulse 2
-* 
+*
 *
 * Vertical defaults
-* 
+*
 * PAL
-* 
+*
 * 0    SVB
 * 2    VC2
 * 3    VC3
@@ -247,7 +247,7 @@ static uae_u32 cop1lc, cop2lc, copcon;
 * 25   RVB (Vertical blank end)
 * 311  VC311 short field (Vertical blank start)
 * 312  VC312 long field (Vertical blank start)
-* 
+*
 * Odd field:
 *
 * HSYNC SHS to RHS
@@ -268,7 +268,7 @@ static uae_u32 cop1lc, cop2lc, copcon;
 *
 *
 * NTSC
-* 
+*
 * 0    SVB
 * 3    VC3
 * 6    VC6
@@ -276,9 +276,9 @@ static uae_u32 cop1lc, cop2lc, copcon;
 * 20   RVB (Vertical blank end)
 * 261  VC261 short field (Vertical blank start)
 * 262  VC262 long field (Vertical blank start)
-* 
+*
 * Odd field:
-* 
+*
 * HSYNC SHS to RHS
 * VSYNC VC3/SHS to VC6/SHS
 * CSYNC HSYNC + if VSYNC active: SHS to VER1 and CEN to VER2
@@ -299,20 +299,20 @@ static uae_u32 cop1lc, cop2lc, copcon;
 
 /*
 * Bitplane DMA enable logic OCS/ECS differences:
-* 
+*
 * OCS: DDFSTRT hard start limit flag is disabled when horizontal hard start position matches.
 * It is enabled during active bitplane DMA's last cycle. (Ending due to either DDFSTOP or hardstop match).
 * ECS: DDFTSTR/STOP hard limit work as documented.
 * It is cleared when hard start matches and set when hard stop matches.
-* 
+*
 * OCS hard start limit bug: if line didn't have BPL DMA active, next line's BPL DMA can start earlier than start limit.
 * (See music disk Ode to Ramon by Digital Force, bottom scroller "scanline affect" )
 * This feature also prevents multiple DDFSTRT/STOP regions in same scanline. ECS/AGA does not have this limit.
-* 
+*
 * DDFSTRT match is ignored if DMACON BPLEN is not enabled. ECS/AGA allows it. Does not affect DDFSTOP.
 * Switch DMACON BPLEN off, wait value to DDFSTRT that matches during current scanline,
 * switch BPLEN on: if OCS, bitplane DMA won't start, ECS/AGA: bitplane DMA starts.
-* 
+*
 */
 
 #define BPL_ERASE_TEST 0
@@ -4211,7 +4211,7 @@ static void quick_add_delay_cycles(int total)
 					break;
 				}
 			}
-		}			
+		}
 
 		total -= total2;
 		if (total <= 0) {
@@ -9438,7 +9438,7 @@ static void bplcon0_denise_change_early(int hpos, uae_u16 con0)
 	} else {
 		bplcon0_planes_changed = true;
 	}
-	
+
 	decide_hdiw(hpos);
 	SET_LINE_CYCLEBASED(hpos);
 
@@ -9508,7 +9508,7 @@ static void BPLCON0(int hpos, uae_u16 v)
 		lightpen_triggered = 1;
 		vpos_lpen = vpos;
 		hpos_lpen = hpos;
-	} 
+	}
 	if (!(v & 8)) {
 		// clearing lightpen bit immediately returns VPOSR back to normal
 		lightpen_triggered = 0;
@@ -12324,7 +12324,7 @@ static bool framewait(void)
 
 		if (0)
 			write_log (_T("%06d:%06d/%06d %d %d\n"), adjust, vsynctimeperline, vstb, max, maxvpos_display);
-	
+
 	} else {
 
 		frame_time_t t = 0;
@@ -12506,7 +12506,7 @@ static void vsync_handler_render(void)
 	next_lineno = calculate_lineno(linear_vpos);
 
 	bool frameok = framewait();
-	
+
 	if (!ad->picasso_on) {
 		if (!frame_rendered && vblank_hz_state) {
 			frame_rendered = crender_screen(0, 1, false);
@@ -14228,7 +14228,7 @@ static void hsync_handler_post(bool onvsync)
 		if (tick - oldtick > 2000 || tick - oldtick < -2000) {
 			oldtick = tick - ms;
 			write_log (_T("RESET\n"));
-		} 
+		}
 		if (tick - oldtick >= ms) {
 			CIA_vsync_posthandler (1);
 			oldtick += ms;
@@ -14716,7 +14716,7 @@ static void hsync_handler(void)
 	vsync_line = vs;
 	hsync_handler_post(vs);
 #ifdef __LIBRETRO__
-	e9k_hsync_notify();
+	puae_hsync_notify();
 	if (vs) {
 		puae_debug_frame_boundary_notify();
 	}
@@ -15263,7 +15263,7 @@ static uae_u32 REGPARAM2 custom_lgeti (uaecptr addr)
 	return custom_lget (addr);
 }
 
-/* e9k debug memory-access hooks (see puae-wasm/e9k/e9k_debug.h) — custom
+/* puae_debug: memory-access hooks (see puae_debug.h) — custom
  * chipset registers ($DFF000-$DFF1FE) get the same watchpoint/protect
  * coverage as RAM, via thin wrappers around the two functions all custom
  * register access funnels through (CPU and Copper writes alike — the
@@ -15271,12 +15271,12 @@ static uae_u32 REGPARAM2 custom_lgeti (uaecptr addr)
  * distinction chipmem_agnus_* uses for Blitter/disk DMA). custom_wget_1
  * has two internal return points, hence wrapping rather than patching
  * both inline. */
-extern void e9k_debug_memhook_afterRead(uint32_t addr24, uint32_t value, uint32_t sizeBits);
-extern int  e9k_debug_memhook_filterWrite(uint32_t addr24, uint32_t sizeBits, uint32_t oldValue, int oldValueValid, uint32_t *inoutValue);
-extern void e9k_debug_memhook_afterWrite(uint32_t addr24, uint32_t value, uint32_t oldValue, uint32_t sizeBits, int oldValueValid, uint32_t source);
+extern void puae_debug_memhook_afterRead(uint32_t addr24, uint32_t value, uint32_t sizeBits);
+extern int  puae_debug_memhook_filterWrite(uint32_t addr24, uint32_t sizeBits, uint32_t oldValue, int oldValueValid, uint32_t *inoutValue);
+extern void puae_debug_memhook_afterWrite(uint32_t addr24, uint32_t value, uint32_t oldValue, uint32_t sizeBits, int oldValueValid, uint32_t source);
 
 // See puae_debug.h. cop_state/copper_access are static to this file, hence
-// this accessor — called from ami_debug.c's e9k_debug_watchbreakRequest
+// this accessor — called from puae_debug.c's puae_debug_watchbreakRequest
 // while handling the same custom-register write that set copper_access,
 // so the value is still current.
 uint32_t puae_debug_get_copper_pc(int *valid)
@@ -15361,7 +15361,7 @@ writeonly:
 		*/
 		v = regs.chipset_latch_rw;
 		{
-			// Debugger-initiated memory inspection (e9k_debug_read_memory/
+			// Debugger-initiated memory inspection (puae_debug_read_memory/
 			// peek_memory) must not have side effects on emulated hardware
 			// state: skip the real-hardware "reading a write-only register
 			// echoes the last chip bus value back as a write" behavior.
@@ -15395,7 +15395,7 @@ writeonly:
 			debug_wputpeek(0xdff000 + addr, l);
 #endif
 			r = custom_wput_1(hpos, addr, l, 1);
-			
+
 			// CPU gets back (OCS/ECS only):
 			// - if last cycle was DMA cycle: DMA cycle data
 			// - if last cycle was not DMA cycle: FFFF or some ANDed old data.
@@ -15438,7 +15438,7 @@ writeonly:
 static uae_u32 REGPARAM2 custom_wget_1(int hpos, uaecptr addr, int noput, bool isbyte)
 {
 	uae_u32 v = custom_wget_1_impl(hpos, addr, noput, isbyte);
-	e9k_debug_memhook_afterRead(0xdff000u | (addr & 0x1feu), v, 16);
+	puae_debug_memhook_afterRead(0xdff000u | (addr & 0x1feu), v, 16);
 	return v;
 }
 
@@ -15505,7 +15505,7 @@ static int REGPARAM2 custom_wput_1_impl (int hpos, uaecptr addr, uae_u32 value, 
 	custom_storage[addr >> 1].value = (uae_u16)value;
 	custom_storage[addr >> 1].pc = copper_access ? cop_state.ip | 1 : M68K_GETPC;
 #ifdef DEBUGGER
-	/* e9k: log this write (reg/value/hpos/vpos) for the blitter-overview
+	/* puae_debug: log this write (reg/value/hpos/vpos) for the blitter-overview
 	   hover tooltip's backward-scan (dmaHover.ts) — see regwrite_record in
 	   debug.c. Covers copper-driven writes too (custom_wput_copper calls
 	   through custom_wput_1 into this same _impl). */
@@ -15822,7 +15822,7 @@ static int REGPARAM2 custom_wput_1 (int hpos, uaecptr addr, uae_u32 value, int n
 	uint32_t addr24 = 0xdff000u | (addr & 0x1feu);
 	uint32_t oldValue = custom_storage[(addr & 0x1fe) >> 1].value;
 	uint32_t newValue = value & 0xffffu;
-	e9k_debug_memhook_filterWrite(addr24, 16, oldValue, 1, &newValue);
+	puae_debug_memhook_filterWrite(addr24, 16, oldValue, 1, &newValue);
 	int result = custom_wput_1_impl(hpos, addr, newValue, noget);
 	if (result == 0) {
 		// result == 1 means writing here actually triggered a hardware
@@ -15831,8 +15831,8 @@ static int REGPARAM2 custom_wput_1 (int hpos, uaecptr addr, uae_u32 value, int n
 		// — that path already fires its own read hook via the wrapped
 		// custom_wget_1 call, so firing a write hook here too would be a
 		// false positive: no write actually landed at this address.
-		e9k_debug_memhook_afterWrite(addr24, newValue, oldValue, 16, 1,
-			copper_access ? 1 /* E9K_MEMPROTECT_SOURCE_DMA */ : 0 /* E9K_MEMPROTECT_SOURCE_CPU */);
+		puae_debug_memhook_afterWrite(addr24, newValue, oldValue, 16, 1,
+			copper_access ? 1 /* PUAE_MEMPROTECT_SOURCE_DMA */ : 0 /* PUAE_MEMPROTECT_SOURCE_CPU */);
 	}
 	return result;
 }
@@ -16769,7 +16769,7 @@ void check_prefs_changed_custom(void)
 	}
 	if (currprefs.turbo_emulation != changed_prefs.turbo_emulation)
 		warpmode(changed_prefs.turbo_emulation);
-	if (inputdevice_config_change_test()) 
+	if (inputdevice_config_change_test())
 		inputdevice_copyconfig (&changed_prefs, &currprefs);
 	currprefs.immediate_blits = changed_prefs.immediate_blits;
 	currprefs.waiting_blits = changed_prefs.waiting_blits;
@@ -17258,13 +17258,13 @@ static void SET_LINE_CYCLEBASED(int hpos)
 	decide_fetch_safe(hpos);
 }
 
-// e9k-debugger: expose display-control register state that is write-only on
+// puae_debug: expose display-control register state that is write-only on
 // the 68k bus (BPLCON0-3, DIWSTRT/STOP, DDFSTRT/STOP are never readable on
 // real hardware, and COLOR00-31 read back the floating data bus) but is
 // needed by the debugger's Amiga State view. Order matches
-// E9K_DISPLAY_REG_COUNT in e9k_debug.h: BPLCON0-3, DIWSTRT, DIWSTOP,
+// PUAE_DISPLAY_REG_COUNT in puae_debug.h: BPLCON0-3, DIWSTRT, DIWSTOP,
 // DDFSTRT, DDFSTOP, then COLOR00-31 (raw 12-bit 0x0RGB values).
-void e9k_get_display_regs(uae_u16 *out)
+void puae_get_display_regs(uae_u16 *out)
 {
 	out[0] = bplcon0;
 	out[1] = bplcon1;
@@ -17279,7 +17279,7 @@ void e9k_get_display_regs(uae_u16 *out)
 	}
 }
 
-// e9k-debugger: diagnostics for the bitplane-DMA fetch prediction/scheduling
+// puae_debug: diagnostics for the bitplane-DMA fetch prediction/scheduling
 // state used by dma_cycle()'s CPU/chipset cycle-contention check
 // (bitplane_dma_access() -> estimated_cycles[]/estimated_cycles_next[] when
 // !line_cyclebased, or cycle_line_pipe[] when line_cyclebased).
@@ -17294,7 +17294,7 @@ void e9k_get_display_regs(uae_u16 *out)
 //  8: vdiwstate_bpl
 //  9: ddf_stopping
 // 10: estimated_empty
-int32_t e9k_get_estimate_diag(uint32_t index, uint32_t param)
+int32_t puae_get_estimate_diag(uint32_t index, uint32_t param)
 {
 	switch (index) {
 	case 0:
@@ -17359,20 +17359,20 @@ int32_t e9k_get_estimate_diag(uint32_t index, uint32_t param)
 }
 
 #if defined SAVESTATE || defined DEBUGGER
-// e9k-debugger: raw $DFF000-$DFF1FE register-image snapshot, for write-only
-// registers not covered by e9k_get_display_regs above (blitter/copper/disk
+// puae_debug: raw $DFF000-$DFF1FE register-image snapshot, for write-only
+// registers not covered by puae_get_display_regs above (blitter/copper/disk
 // pointers, bitplane/sprite pointers & data, display timing, etc). Reuses
 // the savestate machinery's save_custom(), which already gathers all of
-// this into one buffer. `out` must hold E9K_CUSTOM_REGS_RAW_SIZE bytes
-// (see e9k_debug.h for the exact layout/caveats).
-void e9k_get_custom_regs_raw(uae_u8 *out)
+// this into one buffer. `out` must hold PUAE_CUSTOM_REGS_RAW_SIZE bytes
+// (see puae_debug.h for the exact layout/caveats).
+void puae_get_custom_regs_raw(uae_u8 *out)
 {
 	size_t len;
 	save_custom(&len, out, 1);
 }
 #else
-void e9k_get_custom_regs_raw(uae_u8 *out)
+void puae_get_custom_regs_raw(uae_u8 *out)
 {
-	memset(out, 0, E9K_CUSTOM_REGS_RAW_SIZE);
+	memset(out, 0, PUAE_CUSTOM_REGS_RAW_SIZE);
 }
 #endif

@@ -23,8 +23,8 @@
 #ifdef __LIBRETRO__
 extern bool libretro_frame_end;
 
-// Debugger hooks (see e9k/e9k_debug.h and puae_debug.h for full docs).
-extern int e9k_debug_instructionHook(uaecptr pc, uae_u16 opcode);
+// Debugger hooks (see puae_debug.h and puae_debug.h for full docs).
+extern int puae_debug_instructionHook(uaecptr pc, uae_u16 opcode);
 extern void puae_debug_check_catchpoint(uint32_t vector, uint32_t pc);
 extern void puae_debug_request_break_before_next_instr(void);
 #endif
@@ -155,7 +155,7 @@ static int icachelinecnt, icachehalfline;
 static int dcachelinecnt;
 static struct cache040 icaches040[CACHESETS060];
 static struct cache040 dcaches040[CACHESETS060];
-static int cache_lastline; 
+static int cache_lastline;
 
 static int fallback_cpu_model, fallback_mmu_model, fallback_fpu_model;
 static bool fallback_cpu_compatible, fallback_cpu_address_space_24;
@@ -890,7 +890,7 @@ void(*write_data_030_fc_bput)(uaecptr, uae_u32, uae_u32);
 void(*write_data_030_fc_wput)(uaecptr, uae_u32, uae_u32);
 void(*write_data_030_fc_lput)(uaecptr, uae_u32, uae_u32);
 
- 
+
 static void set_x_ifetches(void)
 {
 	if (m68k_pc_indirect) {
@@ -3010,14 +3010,14 @@ static void Exception_mmu030 (int nr, uaecptr oldpc)
 
 	exception_debug (nr);
 	MakeSR ();
-    
+
 	if (!regs.s) {
 		regs.usp = m68k_areg (regs, 7);
 		m68k_areg(regs, 7) = regs.m ? regs.msp : regs.isp;
 		regs.s = 1;
 		mmu_set_super (1);
 	}
- 
+
 	newpc = x_get_long (regs.vbr + 4 * vector_nr);
 
 	if (regs.m && interrupt) { /* M + Interrupt */
@@ -3070,7 +3070,7 @@ static void Exception_mmu (int nr, uaecptr oldpc)
 	// exception vector fetch and exception stack frame
 	// operations don't allocate new cachelines
 	cache_default_data |= CACHE_DISABLE_ALLOCATE;
-	
+
 	exception_debug (nr);
 	MakeSR ();
 
@@ -3110,7 +3110,7 @@ static void Exception_mmu (int nr, uaecptr oldpc)
 	} else {
 		Exception_build_stack_frame_common(oldpc, currpc, regs.mmu_ssw, nr, vector_nr);
 	}
-    
+
 	if (newpc & 1) {
 		if (nr == 2 || nr == 3)
 			cpu_halt (CPU_HALT_DOUBLE_FAULT);
@@ -3246,7 +3246,7 @@ static void Exception_normal (int nr)
 			return;
 		}
 	}
-	
+
 	bool used_exception_build_stack_frame = false;
 
 	if (currprefs.cpu_model > 68000) {
@@ -3647,7 +3647,7 @@ static void m68k_reset2(bool hardreset)
 
 	// Force config changes (CPU speed) into effect on hard reset
 	update_68k_cycles();
-	
+
 #ifdef SAVESTATE
 	if (isrestore()) {
 		m68k_reset_sr();
@@ -3688,7 +3688,7 @@ static void m68k_reset2(bool hardreset)
 	regs.caar = regs.cacr = 0;
 	regs.itt0 = regs.itt1 = regs.dtt0 = regs.dtt1 = 0;
 	regs.tcr = regs.mmusr = regs.urp = regs.srp = regs.buscr = 0;
-	mmu_tt_modified(); 
+	mmu_tt_modified();
 	if (currprefs.cpu_model == 68020) {
 		regs.cacr |= 8;
 		set_cpu_caches (false);
@@ -4148,13 +4148,13 @@ bool mmu_op30(uaecptr pc, uae_u32 opcode, uae_u16 extra, uaecptr extraa)
 	case 2:
 	case 3:
 		if (currprefs.mmu_model)
-			fline = mmu_op30_pmove(pc, opcode, extra, extraa); 
+			fline = mmu_op30_pmove(pc, opcode, extra, extraa);
 		else
 			fline = mmu_op30fake_pmove(pc, opcode, extra, extraa);
 	break;
 	case 1:
 		if (currprefs.mmu_model)
-			fline = mmu_op30_pflush(pc, opcode, extra, extraa); 
+			fline = mmu_op30_pflush(pc, opcode, extra, extraa);
 		else
 			fline = mmu_op30fake_pflush(pc, opcode, extra, extraa);
 	break;
@@ -4169,7 +4169,7 @@ bool mmu_op30(uaecptr pc, uae_u32 opcode, uae_u16 extra, uaecptr extraa)
 		m68k_setpc(pc);
 		op_illg(opcode);
 	}
-	return fline != 0;	
+	return fline != 0;
 }
 
 /* check if an address matches a ttr */
@@ -4686,7 +4686,7 @@ void doint(void)
 	}
 
 	if (regs.ipl_pin > regs.intmask || currprefs.cachesize) {
-		if (currprefs.cpu_compatible && currprefs.cpu_model < 68020) 
+		if (currprefs.cpu_compatible && currprefs.cpu_model < 68020)
 			set_special(SPCFLAG_INT);
 		else
 			set_special(SPCFLAG_DOINT);
@@ -4722,7 +4722,7 @@ static int do_specialties (int cycles)
 
 	if (spcflags & SPCFLAG_MODE_CHANGE)
 		return 1;
-	
+
 	if (spcflags & SPCFLAG_CHECK) {
 		if (regs.halted) {
 			if (regs.halted == CPU_HALT_ACCELERATOR_CPU_FALLBACK) {
@@ -5037,7 +5037,7 @@ static void m68k_run_1 (void)
 #endif
 				r->instruction_pc = m68k_getpc ();
 #ifdef __LIBRETRO__
-				if (e9k_debug_instructionHook(r->instruction_pc, (uae_u16)r->opcode)) {
+				if (puae_debug_instructionHook(r->instruction_pc, (uae_u16)r->opcode)) {
 					exit = true;
 					continue;
 				}
@@ -5162,7 +5162,7 @@ static void m68k_run_1_ce (void)
 
 				r->instruction_pc = m68k_getpc ();
 #ifdef __LIBRETRO__
-				if (e9k_debug_instructionHook(r->instruction_pc, (uae_u16)r->opcode)) {
+				if (puae_debug_instructionHook(r->instruction_pc, (uae_u16)r->opcode)) {
 					exit = true;
 					continue;
 				}
@@ -5319,7 +5319,7 @@ extern addrbank *thread_mem_banks[MEMORY_BANKS];
 
 uae_u32 process_cpu_indirect_memory_read(uae_u32 addr, int size)
 {
-	// Do direct access if call is from filesystem etc thread 
+	// Do direct access if call is from filesystem etc thread
 	if (cpu_thread_tid != uae_thread_get_id()) {
 		uae_u32 data = 0;
 		addrbank *ab = thread_mem_banks[bankindex(addr)];
@@ -5605,7 +5605,7 @@ void execute_normal(void)
 		pc_hist[blocklen].location = (uae_u16*)r->pc_p;
 
 		(*cpufunctbl[r->opcode])(r->opcode);
-	
+
 		cpu_cycles = 4 * CYCLE_UNIT;
 
 //		cpu_cycles = adjust_cycles(cpu_cycles);
@@ -5945,7 +5945,7 @@ insretry:
 					uaecptr new_addr = mmu030_translate(regs.instruction_pc, regs.s != 0, false, false);
 					if (mmu030_fake_prefetch_addr != new_addr) {
 						regs.opcode = mmu030_fake_prefetch;
-						write_log(_T("MMU030 fake prefetch remap: %04x, %08x -> %08x\n"), mmu030_fake_prefetch, mmu030_fake_prefetch_addr, new_addr); 
+						write_log(_T("MMU030 fake prefetch remap: %04x, %08x -> %08x\n"), mmu030_fake_prefetch, mmu030_fake_prefetch_addr, new_addr);
 					} else {
 						if (mmu030_opcode_stageb < 0) {
 							regs.opcode = x_prefetch (0);
@@ -5983,7 +5983,7 @@ insretry:
 						cpu_cycles = (*cpufunctbl[regs.opcode])(regs.opcode);
 
 					} else {
-						
+
 						(*cpufunctbl_noret[regs.opcode])(regs.opcode);
 
 						wait_memory_cycles();
@@ -6082,7 +6082,7 @@ static void m68k_run_3ce (void)
 				}
 #endif
 #ifdef __LIBRETRO__
-				if (e9k_debug_instructionHook(r->instruction_pc, (uae_u16)r->opcode)) {
+				if (puae_debug_instructionHook(r->instruction_pc, (uae_u16)r->opcode)) {
 					exit = true;
 					continue;
 				}
@@ -6138,7 +6138,7 @@ static void m68k_run_3p(void)
 				}
 #endif
 #ifdef __LIBRETRO__
-				if (e9k_debug_instructionHook(r->instruction_pc, (uae_u16)r->opcode)) {
+				if (puae_debug_instructionHook(r->instruction_pc, (uae_u16)r->opcode)) {
 					exit = true;
 					continue;
 				}
@@ -6284,7 +6284,7 @@ static void m68k_run_2ce (void)
 				}
 #endif
 #ifdef __LIBRETRO__
-				if (e9k_debug_instructionHook(r->instruction_pc, (uae_u16)r->opcode)) {
+				if (puae_debug_instructionHook(r->instruction_pc, (uae_u16)r->opcode)) {
 					exit = true;
 					continue;
 				}
@@ -6418,7 +6418,7 @@ static void m68k_run_2p (void)
 				}
 #endif
 #ifdef __LIBRETRO__
-				if (e9k_debug_instructionHook(r->instruction_pc, (uae_u16)r->opcode)) {
+				if (puae_debug_instructionHook(r->instruction_pc, (uae_u16)r->opcode)) {
 					exit = true;
 					continue;
 				}
@@ -6483,7 +6483,7 @@ static void cpu_thread_run_2(void *v)
 
 				r->opcode = x_get_iword(0);
 #ifdef __LIBRETRO__
-				if (e9k_debug_instructionHook(r->instruction_pc, (uae_u16)r->opcode)) {
+				if (puae_debug_instructionHook(r->instruction_pc, (uae_u16)r->opcode)) {
 					exit = true;
 					continue;
 				}
@@ -6525,7 +6525,7 @@ static void m68k_run_2_000(void)
 				r->opcode = x_get_iword(0);
 				count_instr (r->opcode);
 #ifdef __LIBRETRO__
-				if (e9k_debug_instructionHook(r->instruction_pc, (uae_u16)r->opcode)) {
+				if (puae_debug_instructionHook(r->instruction_pc, (uae_u16)r->opcode)) {
 					exit = true;
 					continue;
 				}
@@ -6576,7 +6576,7 @@ static void m68k_run_2_020(void)
 				r->opcode = x_get_iword(0);
 				count_instr(r->opcode);
 #ifdef __LIBRETRO__
-				if (e9k_debug_instructionHook(r->instruction_pc, (uae_u16)r->opcode)) {
+				if (puae_debug_instructionHook(r->instruction_pc, (uae_u16)r->opcode)) {
 					exit = true;
 					continue;
 				}

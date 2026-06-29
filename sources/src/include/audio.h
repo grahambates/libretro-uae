@@ -76,11 +76,11 @@ extern int sound_paula_volume[2];
 
 #define AUDIO_CHANNELS_PAULA 4
 
-// e9k-debugger: see definition in audio.c. Fills `out` (must hold
-// E9K_AUDIO_REGS_SIZE bytes, see e9k_debug.h) with AUD0-3 LC/LEN/PER/VOL/DAT
+// puae_debug: see definition in audio.c. Fills `out` (must hold
+// PUAE_AUDIO_REGS_SIZE bytes, see puae_debug.h) with AUD0-3 LC/LEN/PER/VOL/DAT
 // "live register" values, since these are write-only on the 68k bus and not
 // part of save_custom()'s output.
-extern void e9k_get_audio_regs_raw(uae_u8 *out);
+extern void puae_get_audio_regs_raw(uae_u8 *out);
 
 enum {
 	SND_MONO,

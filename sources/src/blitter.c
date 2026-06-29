@@ -75,7 +75,7 @@ uae_u32 bltapt, bltbpt, bltcpt, bltdpt;
 uae_u32 bltptx;
 int bltptxpos, bltptxc;
 
-/* e9k: visual-only blitter mute for the PUAE webview's channel-visibility
+/* puae_debug: visual-only blitter mute for the PUAE webview's channel-visibility
    panel — mirrors debug_bpl_mask/debug_sprite_mask/audio_channel_mask
    (drawing.c/debug.c/audio.c), gated at the single D-channel chipmem write
    funnel below (blit_chipmem_agnus_wput) rather than skipping the blit
@@ -257,7 +257,7 @@ There is at least one demo that does this..
 	C: - (AB-)
 	D: - (ABD-)
 	E: - (ABC)
-	F: AxBxCxD = -, aBxCxD = A, 
+	F: AxBxCxD = -, aBxCxD = A,
 
 	1FE,8C,RGA,8C
 
@@ -743,7 +743,7 @@ static void blitter_line_write(void)
 
 static void blitter_line_minterm(uae_u16 dat)
 {
-	uae_u16 mask = blt_info.bltafwm;	
+	uae_u16 mask = blt_info.bltafwm;
 	if (dat & BLITTER_PIPELINE_LAST) {
 		mask &= blt_info.bltalwm;
 	}
@@ -858,7 +858,7 @@ static void blitter_line_proc_cpt_y(void)
 static void blitter_line_proc_cpt_x(void)
 {
 	bool sign = (bltcon1 & BLTSIGN) != 0;
-	
+
 	if (!sign) {
 		if (!(bltcon1 & BLTSUD)) {
 			if (bltcon1 & BLTSUL)
@@ -2108,7 +2108,7 @@ void do_blitter(int hpos, int copper, uaecptr pc)
 		}
 		return;
 	}
-	
+
 	blit_cyclecounter = cycles * blit_cyclecount;
 	event2_newevent (ev2_blitter, makebliteventtime(blit_cyclecounter), 0);
 }
@@ -2565,7 +2565,7 @@ uae_u8 *save_blitter_new(size_t *len, uae_u8 *dstptr)
 	save_u8(blt_delayed_irq);
 	save_u8(blt_info.blitzero);
 	save_u8(blt_info.got_cycle);
-	
+
 	save_u8(0); //(blit_frozen);
 	save_u8(blit_faulty);
 	save_u8(0); //original_ch);

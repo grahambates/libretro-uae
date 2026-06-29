@@ -715,10 +715,10 @@ void REGPARAM2 chipmem_bput_limit(uaecptr addr, uae_u32 b)
 }
 
 
-/* e9k debug memory-access hooks (see spike-puae-wasm/e9k/e9k_debug.h) */
-extern void e9k_debug_memhook_afterRead(uint32_t addr24, uint32_t value, uint32_t sizeBits);
-extern int  e9k_debug_memhook_filterWrite(uint32_t addr24, uint32_t sizeBits, uint32_t oldValue, int oldValueValid, uint32_t *inoutValue);
-extern void e9k_debug_memhook_afterWrite(uint32_t addr24, uint32_t value, uint32_t oldValue, uint32_t sizeBits, int oldValueValid, uint32_t source);
+/* puae_debug: memory-access hooks (see puae_debug.h) */
+extern void puae_debug_memhook_afterRead(uint32_t addr24, uint32_t value, uint32_t sizeBits);
+extern int  puae_debug_memhook_filterWrite(uint32_t addr24, uint32_t sizeBits, uint32_t oldValue, int oldValueValid, uint32_t *inoutValue);
+extern void puae_debug_memhook_afterWrite(uint32_t addr24, uint32_t value, uint32_t oldValue, uint32_t sizeBits, int oldValueValid, uint32_t source);
 
 static uae_u32 REGPARAM2 chipmem_lget (uaecptr addr)
 {
@@ -728,7 +728,7 @@ static uae_u32 REGPARAM2 chipmem_lget (uaecptr addr)
 	addr &= chipmem_bank.mask;
 	m = (uae_u32 *)(chipmem_bank.baseaddr + addr);
 	v = do_get_mem_long (m);
-	e9k_debug_memhook_afterRead(addr, v, 32);
+	puae_debug_memhook_afterRead(addr, v, 32);
 	return v;
 }
 
@@ -739,7 +739,7 @@ static uae_u32 REGPARAM2 chipmem_wget (uaecptr addr)
 	addr &= chipmem_bank.mask;
 	m = (uae_u16 *)(chipmem_bank.baseaddr + addr);
 	v = do_get_mem_word (m);
-	e9k_debug_memhook_afterRead(addr, v, 16);
+	puae_debug_memhook_afterRead(addr, v, 16);
 	return v;
 }
 
@@ -748,7 +748,7 @@ static uae_u32 REGPARAM2 chipmem_bget (uaecptr addr)
 	uae_u8 v;
 	addr &= chipmem_bank.mask;
 	v = chipmem_bank.baseaddr[addr];
-	e9k_debug_memhook_afterRead(addr, v, 8);
+	puae_debug_memhook_afterRead(addr, v, 8);
 	return v;
 }
 
@@ -761,9 +761,9 @@ void REGPARAM2 chipmem_lput (uaecptr addr, uae_u32 l)
 	m = (uae_u32 *)(chipmem_bank.baseaddr + addr);
 	oldValue = do_get_mem_long (m);
 	newValue = l;
-	e9k_debug_memhook_filterWrite(addr, 32, oldValue, 1, &newValue);
+	puae_debug_memhook_filterWrite(addr, 32, oldValue, 1, &newValue);
 	do_put_mem_long (m, newValue);
-	e9k_debug_memhook_afterWrite(addr, newValue, oldValue, 32, 1, 0 /* E9K_MEMPROTECT_SOURCE_CPU */);
+	puae_debug_memhook_afterWrite(addr, newValue, oldValue, 32, 1, 0 /* PUAE_MEMPROTECT_SOURCE_CPU */);
 }
 
 void REGPARAM2 chipmem_wput (uaecptr addr, uae_u32 w)
@@ -775,9 +775,9 @@ void REGPARAM2 chipmem_wput (uaecptr addr, uae_u32 w)
 	m = (uae_u16 *)(chipmem_bank.baseaddr + addr);
 	oldValue = do_get_mem_word (m);
 	newValue = w;
-	e9k_debug_memhook_filterWrite(addr, 16, oldValue, 1, &newValue);
+	puae_debug_memhook_filterWrite(addr, 16, oldValue, 1, &newValue);
 	do_put_mem_word (m, newValue);
-	e9k_debug_memhook_afterWrite(addr, newValue, oldValue, 16, 1, 0 /* E9K_MEMPROTECT_SOURCE_CPU */);
+	puae_debug_memhook_afterWrite(addr, newValue, oldValue, 16, 1, 0 /* PUAE_MEMPROTECT_SOURCE_CPU */);
 }
 
 void REGPARAM2 chipmem_bput (uaecptr addr, uae_u32 b)
@@ -787,9 +787,9 @@ void REGPARAM2 chipmem_bput (uaecptr addr, uae_u32 b)
 	addr &= chipmem_bank.mask;
 	oldValue = chipmem_bank.baseaddr[addr];
 	newValue = b;
-	e9k_debug_memhook_filterWrite(addr, 8, oldValue, 1, &newValue);
+	puae_debug_memhook_filterWrite(addr, 8, oldValue, 1, &newValue);
 	chipmem_bank.baseaddr[addr] = (uae_u8)newValue;
-	e9k_debug_memhook_afterWrite(addr, newValue, oldValue, 8, 1, 0 /* E9K_MEMPROTECT_SOURCE_CPU */);
+	puae_debug_memhook_afterWrite(addr, newValue, oldValue, 8, 1, 0 /* PUAE_MEMPROTECT_SOURCE_CPU */);
 }
 
 /* cpu chipmem access inside agnus addressable ram but no ram available */
@@ -877,9 +877,9 @@ void REGPARAM2 chipmem_agnus_wput (uaecptr addr, uae_u32 w)
 	   path's hooks never see since they're entirely separate functions. */
 	oldValue = do_get_mem_word (m);
 	newValue = w;
-	e9k_debug_memhook_filterWrite(addr, 16, oldValue, 1, &newValue);
+	puae_debug_memhook_filterWrite(addr, 16, oldValue, 1, &newValue);
 	do_put_mem_word (m, newValue);
-	e9k_debug_memhook_afterWrite(addr, newValue, oldValue, 16, 1, 1 /* E9K_MEMPROTECT_SOURCE_DMA */);
+	puae_debug_memhook_afterWrite(addr, newValue, oldValue, 16, 1, 1 /* PUAE_MEMPROTECT_SOURCE_DMA */);
 }
 
 static void REGPARAM2 chipmem_agnus_bput (uaecptr addr, uae_u32 b)
@@ -892,9 +892,9 @@ static void REGPARAM2 chipmem_agnus_bput (uaecptr addr, uae_u32 b)
 	/* [vscode-vamiga-debugger mem protect] See chipmem_agnus_wput above. */
 	oldValue = chipmem_bank.baseaddr[addr];
 	newValue = b;
-	e9k_debug_memhook_filterWrite(addr, 8, oldValue, 1, &newValue);
+	puae_debug_memhook_filterWrite(addr, 8, oldValue, 1, &newValue);
 	chipmem_bank.baseaddr[addr] = (uae_u8)newValue;
-	e9k_debug_memhook_afterWrite(addr, newValue, oldValue, 8, 1, 1 /* E9K_MEMPROTECT_SOURCE_DMA */);
+	puae_debug_memhook_afterWrite(addr, newValue, oldValue, 8, 1, 1 /* PUAE_MEMPROTECT_SOURCE_DMA */);
 }
 
 static int REGPARAM2 chipmem_check (uaecptr addr, uae_u32 size)
@@ -1754,7 +1754,7 @@ static bool load_extendedkickstart (const TCHAR *romextfile, int type)
 			}
 		} else if (need_uae_boot_rom (&currprefs) != 0xf00000) {
 			extendedkickmem_type = EXTENDED_ROM_CDTV;
-		}	
+		}
 	} else {
 		extendedkickmem_type = type;
 	}
@@ -2098,16 +2098,16 @@ err:
 // banks (chip/fast/bogo RAM, ROM, under the common non-cycle-exact and
 // cycle-exact CPU configs alike) must not take the raw-pointer fast path in
 // memory_get_long/word/byte and memory_put_long/word/byte — that path skips
-// the bank's lget/lput/etc (and therefore e9k_debug_memhook_afterRead/Write)
+// the bank's lget/lput/etc (and therefore puae_debug_memhook_afterRead/Write)
 // entirely. This mirrors WinUAE's own debugger, which achieves the same
 // thing by swapping out bank function pointers while memwatch is active.
-static int e9k_debug_directAccessSuppressed = 0;
+static int puae_debug_directAccessSuppressed = 0;
 
 static void set_direct_memory(addrbank *ab)
 {
 	if (!(ab->flags & ABFLAG_DIRECTACCESS))
 		return;
-	if (e9k_debug_directAccessSuppressed) {
+	if (puae_debug_directAccessSuppressed) {
 		ab->baseaddr_direct_r = NULL;
 		ab->baseaddr_direct_w = NULL;
 		return;
@@ -2121,12 +2121,12 @@ static void set_direct_memory(addrbank *ab)
 // needed because banks are normally only set up once at allocation time,
 // before any watchpoint could exist. Called whenever the watchpoint/protect
 // enabled mask transitions to/from empty.
-void e9k_debug_set_direct_access_suppressed(int suppressed)
+void puae_debug_set_direct_access_suppressed(int suppressed)
 {
-	if (suppressed == e9k_debug_directAccessSuppressed) {
+	if (suppressed == puae_debug_directAccessSuppressed) {
 		return;
 	}
-	e9k_debug_directAccessSuppressed = suppressed;
+	puae_debug_directAccessSuppressed = suppressed;
 	for (int i = 0; i < MEMORY_BANKS; i++) {
 		addrbank *ab = mem_banks[i];
 		if (ab) {
@@ -2919,7 +2919,7 @@ void memory_clear (void)
 	mem_hardreset = 0;
 	if (savestate_state == STATE_RESTORE)
 		return;
-	
+
 	if (chipmem_bank.baseaddr) {
 		fillpattern(&chipmem_bank);
 	}
@@ -2928,7 +2928,7 @@ void memory_clear (void)
 		// TODO: slow RAM can have 16x chips even if Agnus is ECS.
 		fillpattern(&bogomem_bank);
 	}
-	
+
 	if (mem25bit_bank.baseaddr)
 		memset(mem25bit_bank.baseaddr, 0, mem25bit_bank.allocated_size);
 	if (a3000lmem_bank.baseaddr)
@@ -4139,7 +4139,7 @@ uae_u32 memory_get_wordi(uaecptr addr)
 // banks flagged ABFLAG_DIRECTACCESS (chip/fast/bogo RAM under the common,
 // non-cycle-exact CPU config) skip the bank's lget/lput/etc entirely in
 // favour of a raw pointer fast path below, bypassing chipmem_lget/lput's
-// (etc) e9k_debug_memhook_* calls. Without these, watchpoints and memory
+// (etc) puae_debug_memhook_* calls. Without these, watchpoints and memory
 // protection silently never fire for ordinary CPU accesses to those banks.
 uae_u32 memory_get_long(uaecptr addr)
 {
@@ -4153,7 +4153,7 @@ uae_u32 memory_get_long(uaecptr addr)
 		addr &= ab->mask;
 		m = ab->baseaddr_direct_r + addr;
 		uae_u32 v = do_get_mem_long((uae_u32*)m);
-		e9k_debug_memhook_afterRead(addr24, v, 32);
+		puae_debug_memhook_afterRead(addr24, v, 32);
 		return v;
 	}
 }
@@ -4169,7 +4169,7 @@ uae_u32 memory_get_word(uaecptr addr)
 		addr &= ab->mask;
 		m = ab->baseaddr_direct_r + addr;
 		uae_u32 v = do_get_mem_word((uae_u16*)m);
-		e9k_debug_memhook_afterRead(addr24, v, 16);
+		puae_debug_memhook_afterRead(addr24, v, 16);
 		return v;
 	}
 }
@@ -4185,7 +4185,7 @@ uae_u32 memory_get_byte(uaecptr addr)
 		addr &= ab->mask;
 		m = ab->baseaddr_direct_r + addr;
 		uae_u32 v = *m;
-		e9k_debug_memhook_afterRead(addr24, v, 8);
+		puae_debug_memhook_afterRead(addr24, v, 8);
 		return v;
 	}
 }
@@ -4203,9 +4203,9 @@ void memory_put_long(uaecptr addr, uae_u32 v)
 		m = ab->baseaddr_direct_w + addr;
 		uae_u32 oldValue = do_get_mem_long((uae_u32*)m);
 		uae_u32 newValue = v;
-		e9k_debug_memhook_filterWrite(addr24, 32, oldValue, 1, &newValue);
+		puae_debug_memhook_filterWrite(addr24, 32, oldValue, 1, &newValue);
 		do_put_mem_long((uae_u32*)m, newValue);
-		e9k_debug_memhook_afterWrite(addr24, newValue, oldValue, 32, 1, 0 /* E9K_MEMPROTECT_SOURCE_CPU */);
+		puae_debug_memhook_afterWrite(addr24, newValue, oldValue, 32, 1, 0 /* PUAE_MEMPROTECT_SOURCE_CPU */);
 	}
 }
 void memory_put_word(uaecptr addr, uae_u32 v)
@@ -4221,9 +4221,9 @@ void memory_put_word(uaecptr addr, uae_u32 v)
 		m = ab->baseaddr_direct_w + addr;
 		uae_u32 oldValue = do_get_mem_word((uae_u16*)m);
 		uae_u32 newValue = v;
-		e9k_debug_memhook_filterWrite(addr24, 16, oldValue, 1, &newValue);
+		puae_debug_memhook_filterWrite(addr24, 16, oldValue, 1, &newValue);
 		do_put_mem_word((uae_u16*)m, newValue);
-		e9k_debug_memhook_afterWrite(addr24, newValue, oldValue, 16, 1, 0 /* E9K_MEMPROTECT_SOURCE_CPU */);
+		puae_debug_memhook_afterWrite(addr24, newValue, oldValue, 16, 1, 0 /* PUAE_MEMPROTECT_SOURCE_CPU */);
 	}
 }
 void memory_put_byte(uaecptr addr, uae_u32 v)
@@ -4239,9 +4239,9 @@ void memory_put_byte(uaecptr addr, uae_u32 v)
 		m = ab->baseaddr_direct_w + addr;
 		uae_u32 oldValue = *m;
 		uae_u32 newValue = v;
-		e9k_debug_memhook_filterWrite(addr24, 8, oldValue, 1, &newValue);
+		puae_debug_memhook_filterWrite(addr24, 8, oldValue, 1, &newValue);
 		*m = (uae_u8)newValue;
-		e9k_debug_memhook_afterWrite(addr24, newValue, oldValue, 8, 1, 0 /* E9K_MEMPROTECT_SOURCE_CPU */);
+		puae_debug_memhook_afterWrite(addr24, newValue, oldValue, 8, 1, 0 /* PUAE_MEMPROTECT_SOURCE_CPU */);
 	}
 }
 

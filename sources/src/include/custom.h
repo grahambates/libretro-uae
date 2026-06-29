@@ -75,32 +75,32 @@ extern uae_u32 hsync_counter, vsync_counter;
 extern uae_u16 dmacon;
 extern uae_u16 intena, intreq, intreqr;
 
-// e9k-debugger: see definition in custom.c. Fills `out` (must hold
-// E9K_DISPLAY_REG_COUNT uae_u16s, see e9k_debug.h) with display-control
+// puae_debug: see definition in custom.c. Fills `out` (must hold
+// PUAE_DISPLAY_REG_COUNT uae_u16s, see puae_debug.h) with display-control
 // register state that isn't readable via the normal 68k bus.
-extern void e9k_get_display_regs(uae_u16 *out);
+extern void puae_get_display_regs(uae_u16 *out);
 
-// e9k-debugger: see definition in custom.c. Fills `out` (must hold
-// E9K_CUSTOM_REGS_RAW_SIZE bytes, see e9k_debug.h) with a raw
+// puae_debug: see definition in custom.c. Fills `out` (must hold
+// PUAE_CUSTOM_REGS_RAW_SIZE bytes, see puae_debug.h) with a raw
 // $DFF000-$DFF1FE register-image snapshot via save_custom().
-#define E9K_CUSTOM_REGS_RAW_SIZE (8 + 256 * 2)
-extern void e9k_get_custom_regs_raw(uae_u8 *out);
+#define PUAE_CUSTOM_REGS_RAW_SIZE (8 + 256 * 2)
+extern void puae_get_custom_regs_raw(uae_u8 *out);
 
-// e9k-debugger: called once per scanline from hsync_handler() (custom.c),
+// puae_debug: called once per scanline from hsync_handler() (custom.c),
 // after all per-line state updates. Drives the optional hblank callback
-// registered via e9k_debug_set_hblank_callback() (see e9k_debug.h), used to
+// registered via puae_debug_set_hblank_callback() (see puae_debug.h), used to
 // implement "run to end of line" (eol) stepping.
-extern void e9k_hsync_notify(void);
+extern void puae_hsync_notify(void);
 
 // Called from hsync_handler() (custom.c) on the scanline where a new frame's
 // vblank starts — including during replay. Drives puae_debug_replay_scan_frame
 // (see puae_debug.h), used to implement "step back a frame" (stepBackFrame).
 extern void puae_debug_frame_boundary_notify(void);
 
-// e9k-debugger: see definition in custom.c for index meanings. Diagnostics
+// puae_debug: see definition in custom.c for index meanings. Diagnostics
 // for the bitplane-DMA fetch prediction/scheduling state used by
 // dma_cycle()'s CPU/chipset cycle-contention check.
-extern int32_t e9k_get_estimate_diag(uint32_t index, uint32_t param);
+extern int32_t puae_get_estimate_diag(uint32_t index, uint32_t param);
 
 extern int vpos, lof_store, lof_display;
 extern int scandoubled_line;
@@ -196,7 +196,7 @@ extern evt_t frametime;
 extern uae_u16 htotal, vtotal, beamcon0, new_beamcon0;
 extern uae_u16 bemcon0_hsync_mask, bemcon0_vsync_mask;
 
-// 100 words give you 1600 horizontal pixels. Should be more than enough for superhires. 
+// 100 words give you 1600 horizontal pixels. Should be more than enough for superhires.
 // Extreme overscan superhires needs more.
 // must be divisible by 8
 #ifdef CUSTOM_SIMPLE

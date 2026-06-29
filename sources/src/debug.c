@@ -1035,7 +1035,7 @@ static uae_u32 readint_3(TCHAR **c, int *size, bool *err)
 }
 static uae_u32 readhex_3(TCHAR **c, int *size, bool *err)
 {
-	return readnum(c, size, '$', err);	
+	return readnum(c, size, '$', err);
 }
 
 static size_t next_string (TCHAR **c, TCHAR *out, int max, int forceupper)
@@ -1383,7 +1383,7 @@ struct cop_rec
 static struct cop_rec *cop_record[2];
 static int nr_cop_records[2], curr_cop_set, selected_cop_set;
 
-/* e9k: log of every CPU/copper write to a custom chip register this frame —
+/* puae_debug: log of every CPU/copper write to a custom chip register this frame —
    addr+value+hpos+vpos, same double-buffer-per-frame pattern as cop_record
    above. Backs the blitter-overview hover tooltip (dmaHover.ts), which
    backward-scans this for the last write to BLTCON0/1/BLTSIZE/pointers/
@@ -1813,11 +1813,11 @@ static void heatmap_stats(TCHAR **c)
 			}
 			lastaddress--;
 
-			console_out_f(_T("%03d: %08x - %08x %08x (%d) %s\n"), 
+			console_out_f(_T("%03d: %08x - %08x %08x (%d) %s\n"),
 				lines,
 				firstaddress * HEATMAP_DIV, lastaddress * HEATMAP_DIV + HEATMAP_DIV - 1,
 				lastaddress * HEATMAP_DIV - firstaddress * HEATMAP_DIV + HEATMAP_DIV - 1,
-				lastaddress * HEATMAP_DIV - firstaddress * HEATMAP_DIV + HEATMAP_DIV - 1, 
+				lastaddress * HEATMAP_DIV - firstaddress * HEATMAP_DIV + HEATMAP_DIV - 1,
 				maskname);
 
 			firstaddress = lastaddress + 1;
@@ -2278,7 +2278,7 @@ void record_dma_read_value_pos(uae_u32 v, int hpos, int vpos)
 {
 	hpos += dma_record_hoffset;
 	if (hpos >= NR_DMA_REC_HPOS || vpos >= NR_DMA_REC_VPOS)
-		return;	
+		return;
 	struct dma_rec *dr = &dma_record[dma_record_toggle][vpos * NR_DMA_REC_HPOS + hpos];
 	last_dma_rec = dr;
 	record_dma_read_value(v);
@@ -3615,7 +3615,7 @@ static void smc_detector(uaecptr addr, int rwi, int size, uae_u32 *valp)
 				si->version = smc_version;
 				si->addr = 0xffffffff;
 				si->cnt = 0;
-			}	
+			}
 			if (si->cnt < SMC_MAXHITS) {
 				si->addr = m68k_getpc();
 			}
@@ -5562,7 +5562,7 @@ static void show_exec_lists (TCHAR *t)
 			console_out_f (_T("%08x %d %d %s\n"), node, (int)((v >> 8) & 0xff), (uae_s8)(v & 0xff), name);
 			xfree (name);
 			console_out_f (_T("Attributes %04x First %08x Lower %08x Upper %08x Free %d\n"),
-				get_word_debug (node + 14), get_long_debug (node + 16), get_long_debug (node + 20), 
+				get_word_debug (node + 14), get_long_debug (node + 16), get_long_debug (node + 20),
 				get_long_debug (node + 24), get_long_debug (node + 28));
 			uaecptr mc = get_long_debug (node + 16);
 			while (mc) {
@@ -6298,7 +6298,7 @@ static void debug_sprite (TCHAR **inptr)
 int debug_write_memory_16 (uaecptr addr, uae_u16 v)
 {
 	addrbank *ad;
-	
+
 	ad = &get_mem_bank (addr);
 	if (ad) {
 		ad->wput (addr, v);
@@ -6309,7 +6309,7 @@ int debug_write_memory_16 (uaecptr addr, uae_u16 v)
 int debug_write_memory_8 (uaecptr addr, uae_u8 v)
 {
 	addrbank *ad;
-	
+
 	ad = &get_mem_bank (addr);
 	if (ad) {
 		ad->bput (addr, v);
@@ -6320,7 +6320,7 @@ int debug_write_memory_8 (uaecptr addr, uae_u8 v)
 int debug_peek_memory_16 (uaecptr addr)
 {
 	addrbank *ad;
-	
+
 	ad = &get_mem_bank (addr);
 	if (ad->flags & (ABFLAG_RAM | ABFLAG_ROM | ABFLAG_ROMIN | ABFLAG_SAFE))
 		return ad->wget (addr);
@@ -6333,7 +6333,7 @@ int debug_peek_memory_16 (uaecptr addr)
 int debug_read_memory_16 (uaecptr addr)
 {
 	addrbank *ad;
-	
+
 	ad = &get_mem_bank (addr);
 	if (ad)
 		return ad->wget (addr);
@@ -6342,7 +6342,7 @@ int debug_read_memory_16 (uaecptr addr)
 int debug_read_memory_8 (uaecptr addr)
 {
 	addrbank *ad;
-	
+
 	ad = &get_mem_bank (addr);
 	if (ad)
 		return ad->bget (addr);
@@ -8848,27 +8848,27 @@ bool debug_sprintf(uaecptr addr, uae_u32 val, int size)
 	return true;
 }
 
-/* e9k: serialize last completed frame's DMA records → vAmiga Cell[8] format.
+/* puae_debug: serialize last completed frame's DMA records → vAmiga Cell[8] format.
    Cell: { u8 owner, u8 flags, u16 data_LE, u32 addr_LE } = 8 bytes.
-   Output is E9K_DMA_HPOS * E9K_DMA_VPOS cells; returns byte count or 0. */
-#define E9K_DMA_HPOS 227
-#define E9K_DMA_VPOS 313
+   Output is PUAE_DMA_HPOS * PUAE_DMA_VPOS cells; returns byte count or 0. */
+#define PUAE_DMA_HPOS 227
+#define PUAE_DMA_VPOS 313
 
-static const uint8_t e9k_type_to_owner[10] = {
+static const uint8_t puae_type_to_owner[10] = {
 	0, 2, 1, 22, 0, 23, 0, 0, 3, 0
 	/* 0:none  1:REFRESH→2  2:CPU→1  3:COPPER→22
 	   4:AUDIO→var  5:BLITTER→23  6:BPL→var  7:SPR→var
 	   8:DISK→3  9:CONFLICT→0 */
 };
 
-uint32_t e9k_dma_serialize(uint8_t *out)
+uint32_t puae_dma_serialize(uint8_t *out)
 {
 	if (!dma_record[0]) return 0;
 	int t = dma_record_toggle ^ 1; /* last completed frame */
 	uint8_t *p = out;
 
-	for (int v = 0; v < E9K_DMA_VPOS; v++) {
-		for (int h = 0; h < E9K_DMA_HPOS; h++) {
+	for (int v = 0; v < PUAE_DMA_VPOS; v++) {
+		for (int h = 0; h < PUAE_DMA_HPOS; h++) {
 			struct dma_rec *dr = &dma_record[t][v * NR_DMA_REC_HPOS + h];
 
 			if (dr->reg == 0xffff) {
@@ -8880,7 +8880,7 @@ uint32_t e9k_dma_serialize(uint8_t *out)
 			int atype = dr->type < 0 ? -dr->type : dr->type;
 			uint8_t owner = 0;
 			if (atype < 10) {
-				owner = e9k_type_to_owner[atype];
+				owner = puae_type_to_owner[atype];
 				if (owner == 0 && atype != 0 && atype != 9) {
 					if (atype == 4) owner = 4 + (dr->extra & 3);        /* AUD0-3 */
 					else if (atype == 6) owner = 8 + (dr->extra & 7);   /* BPL1-6 */
@@ -8917,20 +8917,20 @@ uint32_t e9k_dma_serialize(uint8_t *out)
 			p += 8;
 		}
 	}
-	return (uint32_t)(E9K_DMA_HPOS * E9K_DMA_VPOS * 8);
+	return (uint32_t)(PUAE_DMA_HPOS * PUAE_DMA_VPOS * 8);
 }
 
-/* e9k: live single-cell DMA type query for the last completed frame, without
-   e9k_dma_serialize's full-grid Cell[] repack cost. Returns a DMARECORD_*
+/* puae_debug: live single-cell DMA type query for the last completed frame, without
+   puae_dma_serialize's full-grid Cell[] repack cost. Returns a DMARECORD_*
    value (0 if none/out of range/no data) — used by the copper-overlay hover
    tooltip (copperHover.ts) to confirm a hovered pixel was actually a copper
    DMA cycle before searching the copper instruction trace below. hpos/vpos
-   are in the same 227x313 coordinate space as e9k_dma_serialize/
-   e9k_dma_draw_overlay (NR_DMA_REC_HPOS is the wider internal per-line
+   are in the same 227x313 coordinate space as puae_dma_serialize/
+   puae_dma_draw_overlay (NR_DMA_REC_HPOS is the wider internal per-line
    stride that both index with). */
-int e9k_dma_get_cell_type(int hpos, int vpos)
+int puae_dma_get_cell_type(int hpos, int vpos)
 {
-	if (!dma_record[0] || hpos < 0 || hpos >= E9K_DMA_HPOS || vpos < 0 || vpos >= E9K_DMA_VPOS)
+	if (!dma_record[0] || hpos < 0 || hpos >= PUAE_DMA_HPOS || vpos < 0 || vpos >= PUAE_DMA_VPOS)
 		return 0;
 	int t = dma_record_toggle ^ 1; /* last completed frame */
 	struct dma_rec *dr = &dma_record[t][vpos * NR_DMA_REC_HPOS + hpos];
@@ -8939,20 +8939,20 @@ int e9k_dma_get_cell_type(int hpos, int vpos)
 	return atype;
 }
 
-/* e9k: the raw bus address dma_rec recorded for this cell — i.e. cop_state.ip
+/* puae_debug: the raw bus address dma_rec recorded for this cell — i.e. cop_state.ip
    at the moment of that DMA cycle's fetch (see custom.c's record_dma_read
-   call sites in do_copper_fetch), UNLIKE e9k_dma_serialize's `addr` field,
+   call sites in do_copper_fetch), UNLIKE puae_dma_serialize's `addr` field,
    which overwrites this with a register offset for COPPER MOVE cells (for
-   the profiler's register-tooltip use). Pairs with e9k_dma_get_cell_type:
+   the profiler's register-tooltip use). Pairs with puae_dma_get_cell_type:
    for a COPPER cell, this is the address of whichever of the instruction's
    two words was fetched on this specific DMA cycle — used by the hover
    tooltip to match against cop_record[]'s instruction-start addr (below)
    without assuming a fixed cycle gap between the two word fetches (which
    isn't reliably 1 cycle apart when other DMA contends for the bus).
    Returns 0xffffffff if out of range/no data. */
-uint32_t e9k_dma_get_cell_addr(int hpos, int vpos)
+uint32_t puae_dma_get_cell_addr(int hpos, int vpos)
 {
-	if (!dma_record[0] || hpos < 0 || hpos >= E9K_DMA_HPOS || vpos < 0 || vpos >= E9K_DMA_VPOS)
+	if (!dma_record[0] || hpos < 0 || hpos >= PUAE_DMA_HPOS || vpos < 0 || vpos >= PUAE_DMA_VPOS)
 		return 0xffffffff;
 	int t = dma_record_toggle ^ 1; /* last completed frame */
 	struct dma_rec *dr = &dma_record[t][vpos * NR_DMA_REC_HPOS + hpos];
@@ -8960,14 +8960,14 @@ uint32_t e9k_dma_get_cell_addr(int hpos, int vpos)
 	return (uint32_t)dr->addr;
 }
 
-/* e9k: the raw bus data dma_rec recorded for this cell (dr->dat, truncated
+/* puae_debug: the raw bus data dma_rec recorded for this cell (dr->dat, truncated
    to 32 bits — the word/long actually read or written on this cycle).
    Returns 0xffffffff if out of range/no data (ambiguous with a real
    0xFFFFFFFF data value, but callers already gate on
-   e9k_dma_get_cell_type() != 0 first). */
-uint32_t e9k_dma_get_cell_data(int hpos, int vpos)
+   puae_dma_get_cell_type() != 0 first). */
+uint32_t puae_dma_get_cell_data(int hpos, int vpos)
 {
-	if (!dma_record[0] || hpos < 0 || hpos >= E9K_DMA_HPOS || vpos < 0 || vpos >= E9K_DMA_VPOS)
+	if (!dma_record[0] || hpos < 0 || hpos >= PUAE_DMA_HPOS || vpos < 0 || vpos >= PUAE_DMA_VPOS)
 		return 0xffffffff;
 	int t = dma_record_toggle ^ 1; /* last completed frame */
 	struct dma_rec *dr = &dma_record[t][vpos * NR_DMA_REC_HPOS + hpos];
@@ -8975,17 +8975,17 @@ uint32_t e9k_dma_get_cell_data(int hpos, int vpos)
 	return (uint32_t)dr->dat;
 }
 
-/* e9k: the raw dr->extra sub-channel/mode bits for this cell — meaning is
+/* puae_debug: the raw dr->extra sub-channel/mode bits for this cell — meaning is
    type-specific (see the relevant record_dma_read/record_dma_write call
    sites): for DMARECORD_BLITTER, `extra & 7` is the channel (0=A,1=B,2=C
    reads, 3=D write) and `extra & 0x10`/`0x20` flag fill/line mode
    (blitter.c's record_dma_blit); for DMARECORD_AUDIO/BITPLANE/SPRITE,
    `extra & 3`/`7` is the channel/plane/sprite index (custom.c, matching
-   e9k_dma_serialize's owner computation). Returns 0xffff if out of
+   puae_dma_serialize's owner computation). Returns 0xffff if out of
    range/no data. */
-uint16_t e9k_dma_get_cell_extra(int hpos, int vpos)
+uint16_t puae_dma_get_cell_extra(int hpos, int vpos)
 {
-	if (!dma_record[0] || hpos < 0 || hpos >= E9K_DMA_HPOS || vpos < 0 || vpos >= E9K_DMA_VPOS)
+	if (!dma_record[0] || hpos < 0 || hpos >= PUAE_DMA_HPOS || vpos < 0 || vpos >= PUAE_DMA_VPOS)
 		return 0xffff;
 	int t = dma_record_toggle ^ 1; /* last completed frame */
 	struct dma_rec *dr = &dma_record[t][vpos * NR_DMA_REC_HPOS + hpos];
@@ -8993,21 +8993,21 @@ uint16_t e9k_dma_get_cell_extra(int hpos, int vpos)
 	return dr->extra;
 }
 
-/* e9k: the raw dr->reg field for this cell. For most types this is a real
+/* puae_debug: the raw dr->reg field for this cell. For most types this is a real
    $DFFxxx register offset, but for DMARECORD_CPU it's a *synthetic* marker
    (custom.c's wait_cpu_cycle_read/write), not a register address:
    0x1000|sizebits for a read, 0x1100|sizebits for a write, where sizebits
    is 1=byte, 2=word, 4=long — i.e. `reg & 0x100` is the write flag and
-   `reg & 7` is the size. Combined with e9k_dma_get_cell_extra's `extra & 1`
+   `reg & 7` is the size. Combined with puae_dma_get_cell_extra's `extra & 1`
    (0 = instruction fetch, 1 = data access — meaningful for CPU reads only,
    writes are always data) this is enough to reconstruct the profiler's CPU
    DMA tooltip (Address/Register, Data, Access) for a live single cell.
    Returns 0xffff if out of range/no data (ambiguous with a real register
    value of 0xffff, but callers already gate on
-   e9k_dma_get_cell_type() != 0 first). */
-uint16_t e9k_dma_get_cell_reg(int hpos, int vpos)
+   puae_dma_get_cell_type() != 0 first). */
+uint16_t puae_dma_get_cell_reg(int hpos, int vpos)
 {
-	if (!dma_record[0] || hpos < 0 || hpos >= E9K_DMA_HPOS || vpos < 0 || vpos >= E9K_DMA_VPOS)
+	if (!dma_record[0] || hpos < 0 || hpos >= PUAE_DMA_HPOS || vpos < 0 || vpos >= PUAE_DMA_VPOS)
 		return 0xffff;
 	int t = dma_record_toggle ^ 1; /* last completed frame */
 	struct dma_rec *dr = &dma_record[t][vpos * NR_DMA_REC_HPOS + hpos];
@@ -9015,14 +9015,14 @@ uint16_t e9k_dma_get_cell_reg(int hpos, int vpos)
 	return dr->reg;
 }
 
-/* e9k: serialize the last completed frame's copper instruction trace —
+/* puae_debug: serialize the last completed frame's copper instruction trace —
    cop_record[] (populated by record_copper(), custom.c's do_copper_fetch),
-   which the e9k_debug breakpoint/disassembly commands already maintain but
+   which the puae_debug breakpoint/disassembly commands already maintain but
    never exposed to JS before. Each record is 12 bytes LE: addr(u32) w1(u16)
    w2(u16) hpos(u16) vpos(u16). addr/w1/w2 are the instruction's start address
    and both words; hpos/vpos are the DMA-grid coordinates of the *second*
    word fetch (one cycle after the first, which is also COPPER-owned per
-   e9k_dma_get_cell_type above) — dmaHover.ts's findCopperInstructionByAddr
+   puae_dma_get_cell_type above) — dmaHover.ts's findCopperInstructionByAddr
    matches a hovered cell to its instruction by comparing addr (or addr-2)
    against this addr field, not by hpos/vpos position (the gap between an
    instruction's two word fetches isn't reliably exactly 1 DMA cycle once
@@ -9030,15 +9030,15 @@ uint16_t e9k_dma_get_cell_reg(int hpos, int vpos)
    Only populated while debug_copper is enabled (wasm_copper_tracking_enable)
    — see do_copper_fetch's MOVE branch, which gates record_copper() on it.
    Returns the byte count written, or 0 if no copper trace has been recorded. */
-#define E9K_COPPER_RECORD_BYTES 12
-#define E9K_COPPER_MAX_RECORDS 40000
+#define PUAE_COPPER_RECORD_BYTES 12
+#define PUAE_COPPER_MAX_RECORDS 40000
 
-uint32_t e9k_copper_serialize(uint8_t *out)
+uint32_t puae_copper_serialize(uint8_t *out)
 {
 	if (!cop_record[0]) return 0;
 	int t = curr_cop_set ^ 1; /* last completed frame */
 	int count = nr_cop_records[t];
-	if (count > E9K_COPPER_MAX_RECORDS) count = E9K_COPPER_MAX_RECORDS;
+	if (count > PUAE_COPPER_MAX_RECORDS) count = PUAE_COPPER_MAX_RECORDS;
 
 	uint8_t *p = out;
 	for (int i = 0; i < count; i++) {
@@ -9056,20 +9056,20 @@ uint32_t e9k_copper_serialize(uint8_t *out)
 		p[9] = ((uint16_t)cr->hpos >> 8) & 0xff;
 		p[10] = (uint16_t)cr->vpos & 0xff;
 		p[11] = ((uint16_t)cr->vpos >> 8) & 0xff;
-		p += E9K_COPPER_RECORD_BYTES;
+		p += PUAE_COPPER_RECORD_BYTES;
 	}
-	return (uint32_t)(count * E9K_COPPER_RECORD_BYTES);
+	return (uint32_t)(count * PUAE_COPPER_RECORD_BYTES);
 }
 
-/* e9k: serialize the last completed frame's register-write log (see
+/* puae_debug: serialize the last completed frame's register-write log (see
    regwrite_record above) — reg/value/hpos/vpos per write, baseline entries
    (hpos=vpos=-1) first. Each record is 8 bytes LE: reg(u16) value(u16)
    hpos(i16) vpos(i16) — hpos/vpos are SIGNED so JS can tell baseline (-1)
    apart from any real in-frame position. Returns the byte count written,
    or 0 if the log hasn't been initialized (debug_dma never turned on). */
-#define E9K_REGWRITE_RECORD_BYTES 8
+#define PUAE_REGWRITE_RECORD_BYTES 8
 
-uint32_t e9k_regwrite_serialize(uint8_t *out)
+uint32_t puae_regwrite_serialize(uint8_t *out)
 {
 	if (!regwrite_record[0]) return 0;
 	int t = curr_regwrite_set ^ 1; /* last completed frame */
@@ -9086,16 +9086,16 @@ uint32_t e9k_regwrite_serialize(uint8_t *out)
 		p[5] = ((uint16_t)r->hpos >> 8) & 0xff;
 		p[6] = (uint16_t)r->vpos & 0xff;
 		p[7] = ((uint16_t)r->vpos >> 8) & 0xff;
-		p += E9K_REGWRITE_RECORD_BYTES;
+		p += PUAE_REGWRITE_RECORD_BYTES;
 	}
-	return (uint32_t)(count * E9K_REGWRITE_RECORD_BYTES);
+	return (uint32_t)(count * PUAE_REGWRITE_RECORD_BYTES);
 }
 
-/* e9k: live DMA overlay — composites DMA activity onto the RGBA framebuffer.
+/* puae_debug: live DMA overlay — composites DMA activity onto the RGBA framebuffer.
    Called from shim_video_refresh() each frame when the overlay is enabled.
    type indices match DMARECORD_* (0=idle/off, 1=REFRESH … 9=CONFLICT). */
 
-static const uint8_t e9k_overlay_rgb[DMARECORD_MAX][3] = {
+static const uint8_t puae_overlay_rgb[DMARECORD_MAX][3] = {
 	{0x22, 0x22, 0x22},  /* 0 idle      (not drawn) */
 	{0x44, 0x44, 0x44},  /* 1 REFRESH   */
 	{0xa2, 0x53, 0x42},  /* 2 CPU       */
@@ -9113,46 +9113,46 @@ static const uint8_t e9k_overlay_rgb[DMARECORD_MAX][3] = {
 // the C-side default must match — otherwise channels never explicitly
 // toggled (e.g. COPPER/SPRITE, which are usually active) show up as soon as
 // any other channel turns the overlay on.
-static int e9k_overlay_channel_enabled[DMARECORD_MAX] = {
+static int puae_overlay_channel_enabled[DMARECORD_MAX] = {
 	0, 0, 0, 0, 0, 0, 0, 0, 0, 0
 };
 
-void e9k_dma_set_channel_enabled(int type, int enabled)
+void puae_dma_set_channel_enabled(int type, int enabled)
 {
 	if (type >= 0 && type < DMARECORD_MAX)
-		e9k_overlay_channel_enabled[type] = enabled ? 1 : 0;
+		puae_overlay_channel_enabled[type] = enabled ? 1 : 0;
 }
 
-void e9k_dma_draw_overlay(uint8_t *rgba, int width, int height, int opacity)
+void puae_dma_draw_overlay(uint8_t *rgba, int width, int height, int opacity)
 {
 	if (!dma_record[0] || opacity <= 0) return;
 	if (opacity > 255) opacity = 255;
 
 	int t = dma_record_toggle ^ 1; /* last completed frame */
 
-	for (int v = 0; v < E9K_DMA_VPOS; v++) {
+	for (int v = 0; v < PUAE_DMA_VPOS; v++) {
 		/* Fill the full pixel rect that this DMA row maps to */
-		int y0 = v * height / E9K_DMA_VPOS;
-		int y1 = (v + 1) * height / E9K_DMA_VPOS;
+		int y0 = v * height / PUAE_DMA_VPOS;
+		int y1 = (v + 1) * height / PUAE_DMA_VPOS;
 		if (y0 >= height) continue;
 		if (y1 > height) y1 = height;
 		if (y1 <= y0) y1 = y0 + 1;
 
-		for (int h = 0; h < E9K_DMA_HPOS; h++) {
+		for (int h = 0; h < PUAE_DMA_HPOS; h++) {
 			struct dma_rec *dr = &dma_record[t][v * NR_DMA_REC_HPOS + h];
 			if (dr->reg == 0xffff) continue;
 
 			int atype = dr->type < 0 ? -dr->type : dr->type;
 			if (atype <= 0 || atype >= DMARECORD_MAX) continue;
-			if (!e9k_overlay_channel_enabled[atype]) continue;
+			if (!puae_overlay_channel_enabled[atype]) continue;
 
-			int x0 = h * width / E9K_DMA_HPOS;
-			int x1 = (h + 1) * width / E9K_DMA_HPOS;
+			int x0 = h * width / PUAE_DMA_HPOS;
+			int x1 = (h + 1) * width / PUAE_DMA_HPOS;
 			if (x0 >= width) continue;
 			if (x1 > width) x1 = width;
 			if (x1 <= x0) x1 = x0 + 1;
 
-			const uint8_t *c = e9k_overlay_rgb[atype];
+			const uint8_t *c = puae_overlay_rgb[atype];
 			for (int py = y0; py < y1; py++) {
 				uint8_t *row = rgba + py * width * 4;
 				for (int px = x0; px < x1; px++) {

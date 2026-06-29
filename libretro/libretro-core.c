@@ -219,9 +219,9 @@ static int retro_diwstartstop_counter = 0;
 extern int visible_left_border;
 static int visible_left_border_old = 0;
 
-// e9k: set by wasm_dma_overlay_enable() (ami_debug.c) whenever any DMA debug
+// puae_debug: set by wasm_dma_overlay_enable() (puae_debug.c) whenever any DMA debug
 // overlay channel is active. The overlay's hpos/vpos coordinate space
-// (e9k_dma_draw_overlay, debug.c) covers the full raw PAL raster — but the
+// (puae_dma_draw_overlay, debug.c) covers the full raw PAL raster — but the
 // normal output path centers/crops the buffer (retrox_crop/retroy_crop,
 // retrow_crop/retroh_crop) onto just the active display window, so column 0/
 // row 0 of the reported buffer doesn't correspond to hpos=0/vpos=0, throwing
@@ -3038,7 +3038,7 @@ static void retro_set_inputs(void)
       { nonport_controllers, sizeof(nonport_controllers) / sizeof(nonport_controllers[0]) },
       { NULL, 0 }
    };
-   
+
    environ_cb(RETRO_ENVIRONMENT_SET_CONTROLLER_INFO, (void*)ports);
 
    #define RETRO_DESCRIPTOR_BLOCK(_user)                                                                        \
@@ -3371,12 +3371,12 @@ static void retro_set_geometry(unsigned video_config, bool init)
          break;
    }
 
-   // e9k: while the DMA overlay is active, report the true full raw PAL
+   // puae_debug: while the DMA overlay is active, report the true full raw PAL
    // raster (912x626 — matches vAmiga's own full-overscan HPIXELS x
    // VPIXELS*2 reference) instead of the normal preset, so every DMA cycle
-   // e9k_dma_draw_overlay (debug.c) records — including audio/sprite
+   // puae_dma_draw_overlay (debug.c) records — including audio/sprite
    // fetches that happen in horizontal/vertical blanking — has a pixel to
-   // land on. wasm_dma_overlay_enable() (ami_debug.c) pairs this with
+   // land on. wasm_dma_overlay_enable() (puae_debug.c) pairs this with
    // crop_id = CROP_NONE so the crop logic below doesn't shrink it back
    // down, and OVERSCANMODE_ULTRA so drawing.c actually renders that far
    // into the border instead of leaving it blank.
@@ -4034,7 +4034,7 @@ static void update_variables(void)
       strcat(uae_config, "sound_filter=");
       strcat(uae_config, var.value);
       strcat(uae_config, "\n");
-      
+
       if (libretro_runloop_active)
       {
          if      (!strcmp(var.value, "emulated")) changed_prefs.sound_filter = FILTER_SOUND_EMUL;
@@ -7291,7 +7291,7 @@ static bool retro_create_config(void)
                /* Append */
                retro_config_append(filebuf);
             }
-            
+
             fclose(configfile_custom);
          }
 

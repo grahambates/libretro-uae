@@ -316,18 +316,18 @@ extern void record_dma_ipl_sample(int hpos, int vpos);
 extern void record_dma_denise(int pos, int dhpos);
 extern void debug_mark_refreshed(uaecptr);
 extern void debug_draw(uae_u8 *buf, int bpp, int line, int width, int height, uae_u32 *xredcolors, uae_u32 *xgreencolors, uae_u32 *xbluescolors);
-extern uint32_t e9k_dma_serialize(uint8_t *out);
-extern void e9k_dma_set_channel_enabled(int type, int enabled);
-extern void e9k_dma_draw_overlay(uint8_t *rgba, int width, int height, int opacity);
-extern int e9k_dma_get_cell_type(int hpos, int vpos);
-extern uint32_t e9k_dma_get_cell_addr(int hpos, int vpos);
-extern uint32_t e9k_dma_get_cell_data(int hpos, int vpos);
-extern uint16_t e9k_dma_get_cell_extra(int hpos, int vpos);
-extern uint16_t e9k_dma_get_cell_reg(int hpos, int vpos);
-extern uint32_t e9k_copper_serialize(uint8_t *out);
+extern uint32_t puae_dma_serialize(uint8_t *out);
+extern void puae_dma_set_channel_enabled(int type, int enabled);
+extern void puae_dma_draw_overlay(uint8_t *rgba, int width, int height, int opacity);
+extern int puae_dma_get_cell_type(int hpos, int vpos);
+extern uint32_t puae_dma_get_cell_addr(int hpos, int vpos);
+extern uint32_t puae_dma_get_cell_data(int hpos, int vpos);
+extern uint16_t puae_dma_get_cell_extra(int hpos, int vpos);
+extern uint16_t puae_dma_get_cell_reg(int hpos, int vpos);
+extern uint32_t puae_copper_serialize(uint8_t *out);
 extern void record_reg_write_reset(void);
 extern void record_reg_write(uae_u16 reg, uae_u16 value, int hpos, int vpos);
-extern uint32_t e9k_regwrite_serialize(uint8_t *out);
+extern uint32_t puae_regwrite_serialize(uint8_t *out);
 
 #define TRACE_SKIP_INS 1
 #define TRACE_MATCH_PC 2
