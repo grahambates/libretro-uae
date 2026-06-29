@@ -15264,7 +15264,7 @@ static uae_u32 REGPARAM2 custom_lgeti (uaecptr addr)
 }
 
 /* puae_debug: memory-access hooks (see puae_debug.h) — custom
- * chipset registers ($DFF000-$DFF1FE) get the same watchpoint/protect
+ * chipset registers ($DFF000-$DFF1FE) get the same watchpoint/memprotect
  * coverage as RAM, via thin wrappers around the two functions all custom
  * register access funnels through (CPU and Copper writes alike — the
  * latter already tracked via copper_access, the same DMA-vs-CPU source
@@ -15272,7 +15272,6 @@ static uae_u32 REGPARAM2 custom_lgeti (uaecptr addr)
  * has two internal return points, hence wrapping rather than patching
  * both inline. */
 extern void puae_debug_memhook_afterRead(uint32_t addr24, uint32_t value, uint32_t sizeBits);
-extern int  puae_debug_memhook_filterWrite(uint32_t addr24, uint32_t sizeBits, uint32_t oldValue, int oldValueValid, uint32_t *inoutValue);
 extern void puae_debug_memhook_afterWrite(uint32_t addr24, uint32_t value, uint32_t oldValue, uint32_t sizeBits, int oldValueValid, uint32_t source);
 
 // See puae_debug.h. cop_state/copper_access are static to this file, hence
@@ -15822,7 +15821,6 @@ static int REGPARAM2 custom_wput_1 (int hpos, uaecptr addr, uae_u32 value, int n
 	uint32_t addr24 = 0xdff000u | (addr & 0x1feu);
 	uint32_t oldValue = custom_storage[(addr & 0x1fe) >> 1].value;
 	uint32_t newValue = value & 0xffffu;
-	puae_debug_memhook_filterWrite(addr24, 16, oldValue, 1, &newValue);
 	int result = custom_wput_1_impl(hpos, addr, newValue, noget);
 	if (result == 0) {
 		// result == 1 means writing here actually triggered a hardware

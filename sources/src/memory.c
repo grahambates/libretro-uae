@@ -717,7 +717,6 @@ void REGPARAM2 chipmem_bput_limit(uaecptr addr, uae_u32 b)
 
 /* puae_debug: memory-access hooks (see puae_debug.h) */
 extern void puae_debug_memhook_afterRead(uint32_t addr24, uint32_t value, uint32_t sizeBits);
-extern int  puae_debug_memhook_filterWrite(uint32_t addr24, uint32_t sizeBits, uint32_t oldValue, int oldValueValid, uint32_t *inoutValue);
 extern void puae_debug_memhook_afterWrite(uint32_t addr24, uint32_t value, uint32_t oldValue, uint32_t sizeBits, int oldValueValid, uint32_t source);
 
 static uae_u32 REGPARAM2 chipmem_lget (uaecptr addr)
@@ -755,41 +754,35 @@ static uae_u32 REGPARAM2 chipmem_bget (uaecptr addr)
 void REGPARAM2 chipmem_lput (uaecptr addr, uae_u32 l)
 {
 	uae_u32 *m;
-	uae_u32 oldValue, newValue;
+	uae_u32 oldValue;
 
 	addr &= chipmem_bank.mask;
 	m = (uae_u32 *)(chipmem_bank.baseaddr + addr);
 	oldValue = do_get_mem_long (m);
-	newValue = l;
-	puae_debug_memhook_filterWrite(addr, 32, oldValue, 1, &newValue);
-	do_put_mem_long (m, newValue);
-	puae_debug_memhook_afterWrite(addr, newValue, oldValue, 32, 1, 0 /* PUAE_MEMPROTECT_SOURCE_CPU */);
+	do_put_mem_long (m, l);
+	puae_debug_memhook_afterWrite(addr, l, oldValue, 32, 1, 0 /* PUAE_MEMPROTECT_SOURCE_CPU */);
 }
 
 void REGPARAM2 chipmem_wput (uaecptr addr, uae_u32 w)
 {
 	uae_u16 *m;
-	uae_u32 oldValue, newValue;
+	uae_u32 oldValue;
 
 	addr &= chipmem_bank.mask;
 	m = (uae_u16 *)(chipmem_bank.baseaddr + addr);
 	oldValue = do_get_mem_word (m);
-	newValue = w;
-	puae_debug_memhook_filterWrite(addr, 16, oldValue, 1, &newValue);
-	do_put_mem_word (m, newValue);
-	puae_debug_memhook_afterWrite(addr, newValue, oldValue, 16, 1, 0 /* PUAE_MEMPROTECT_SOURCE_CPU */);
+	do_put_mem_word (m, w);
+	puae_debug_memhook_afterWrite(addr, w, oldValue, 16, 1, 0 /* PUAE_MEMPROTECT_SOURCE_CPU */);
 }
 
 void REGPARAM2 chipmem_bput (uaecptr addr, uae_u32 b)
 {
-	uae_u32 oldValue, newValue;
+	uae_u32 oldValue;
 
 	addr &= chipmem_bank.mask;
 	oldValue = chipmem_bank.baseaddr[addr];
-	newValue = b;
-	puae_debug_memhook_filterWrite(addr, 8, oldValue, 1, &newValue);
-	chipmem_bank.baseaddr[addr] = (uae_u8)newValue;
-	puae_debug_memhook_afterWrite(addr, newValue, oldValue, 8, 1, 0 /* PUAE_MEMPROTECT_SOURCE_CPU */);
+	chipmem_bank.baseaddr[addr] = (uae_u8)b;
+	puae_debug_memhook_afterWrite(addr, b, oldValue, 8, 1, 0 /* PUAE_MEMPROTECT_SOURCE_CPU */);
 }
 
 /* cpu chipmem access inside agnus addressable ram but no ram available */
@@ -866,35 +859,31 @@ static void REGPARAM2 chipmem_agnus_lput (uaecptr addr, uae_u32 l)
 void REGPARAM2 chipmem_agnus_wput (uaecptr addr, uae_u32 w)
 {
 	uae_u16 *m;
-	uae_u32 oldValue, newValue;
+	uae_u32 oldValue;
 
 	addr &= chipmem_full_mask;
 	if (addr >= chipmem_full_size - 1)
 		return;
 	m = (uae_u16 *)(chipmem_bank.baseaddr + addr);
-	/* [vscode-vamiga-debugger mem protect] Mirrors chipmem_wput's hooks —
-	   this is the DMA/Agnus write path (Blitter, disk DMA), which the CPU
-	   path's hooks never see since they're entirely separate functions. */
+	/* puae_debug: mirrors chipmem_wput's hooks — this is the DMA/Agnus
+	   write path (Blitter, disk DMA), which the CPU path's hooks never
+	   see since they're entirely separate functions. */
 	oldValue = do_get_mem_word (m);
-	newValue = w;
-	puae_debug_memhook_filterWrite(addr, 16, oldValue, 1, &newValue);
-	do_put_mem_word (m, newValue);
-	puae_debug_memhook_afterWrite(addr, newValue, oldValue, 16, 1, 1 /* PUAE_MEMPROTECT_SOURCE_DMA */);
+	do_put_mem_word (m, w);
+	puae_debug_memhook_afterWrite(addr, w, oldValue, 16, 1, 1 /* PUAE_MEMPROTECT_SOURCE_DMA */);
 }
 
 static void REGPARAM2 chipmem_agnus_bput (uaecptr addr, uae_u32 b)
 {
-	uae_u32 oldValue, newValue;
+	uae_u32 oldValue;
 
 	addr &= chipmem_full_mask;
 	if (addr >= chipmem_full_size)
 		return;
-	/* [vscode-vamiga-debugger mem protect] See chipmem_agnus_wput above. */
+	/* puae_debug: see chipmem_agnus_wput above. */
 	oldValue = chipmem_bank.baseaddr[addr];
-	newValue = b;
-	puae_debug_memhook_filterWrite(addr, 8, oldValue, 1, &newValue);
-	chipmem_bank.baseaddr[addr] = (uae_u8)newValue;
-	puae_debug_memhook_afterWrite(addr, newValue, oldValue, 8, 1, 1 /* PUAE_MEMPROTECT_SOURCE_DMA */);
+	chipmem_bank.baseaddr[addr] = (uae_u8)b;
+	puae_debug_memhook_afterWrite(addr, b, oldValue, 8, 1, 1 /* PUAE_MEMPROTECT_SOURCE_DMA */);
 }
 
 static int REGPARAM2 chipmem_check (uaecptr addr, uae_u32 size)
@@ -4202,10 +4191,8 @@ void memory_put_long(uaecptr addr, uae_u32 v)
 		addr &= ab->mask;
 		m = ab->baseaddr_direct_w + addr;
 		uae_u32 oldValue = do_get_mem_long((uae_u32*)m);
-		uae_u32 newValue = v;
-		puae_debug_memhook_filterWrite(addr24, 32, oldValue, 1, &newValue);
-		do_put_mem_long((uae_u32*)m, newValue);
-		puae_debug_memhook_afterWrite(addr24, newValue, oldValue, 32, 1, 0 /* PUAE_MEMPROTECT_SOURCE_CPU */);
+		do_put_mem_long((uae_u32*)m, v);
+		puae_debug_memhook_afterWrite(addr24, v, oldValue, 32, 1, 0 /* PUAE_MEMPROTECT_SOURCE_CPU */);
 	}
 }
 void memory_put_word(uaecptr addr, uae_u32 v)
@@ -4220,10 +4207,8 @@ void memory_put_word(uaecptr addr, uae_u32 v)
 		addr &= ab->mask;
 		m = ab->baseaddr_direct_w + addr;
 		uae_u32 oldValue = do_get_mem_word((uae_u16*)m);
-		uae_u32 newValue = v;
-		puae_debug_memhook_filterWrite(addr24, 16, oldValue, 1, &newValue);
-		do_put_mem_word((uae_u16*)m, newValue);
-		puae_debug_memhook_afterWrite(addr24, newValue, oldValue, 16, 1, 0 /* PUAE_MEMPROTECT_SOURCE_CPU */);
+		do_put_mem_word((uae_u16*)m, v);
+		puae_debug_memhook_afterWrite(addr24, v, oldValue, 16, 1, 0 /* PUAE_MEMPROTECT_SOURCE_CPU */);
 	}
 }
 void memory_put_byte(uaecptr addr, uae_u32 v)
@@ -4238,10 +4223,8 @@ void memory_put_byte(uaecptr addr, uae_u32 v)
 		addr &= ab->mask;
 		m = ab->baseaddr_direct_w + addr;
 		uae_u32 oldValue = *m;
-		uae_u32 newValue = v;
-		puae_debug_memhook_filterWrite(addr24, 8, oldValue, 1, &newValue);
-		*m = (uae_u8)newValue;
-		puae_debug_memhook_afterWrite(addr24, newValue, oldValue, 8, 1, 0 /* PUAE_MEMPROTECT_SOURCE_CPU */);
+		*m = (uae_u8)v;
+		puae_debug_memhook_afterWrite(addr24, v, oldValue, 8, 1, 0 /* PUAE_MEMPROTECT_SOURCE_CPU */);
 	}
 }
 
