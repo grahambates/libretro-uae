@@ -8931,6 +8931,36 @@ uint32_t puae_dma_serialize(uint8_t *out)
 	return (uint32_t)(PUAE_DMA_HPOS * PUAE_DMA_VPOS * 8);
 }
 
+/* puae_debug: serialize the last completed frame's per-cycle event bitfield (dr->evt) —
+   notable hardware events that coincided with each DMA cycle (blitter IRQ/finalD, copper
+   wake/skip/wanted, CPU IRQ/stop, CIA IRQs, display blank/sync/window edges; the DMA_EVENT_*
+   constants in debug.h). UAE already computes this every cycle for its own "dma -3" text debug
+   log (see the `if (dr->evt & DMA_EVENT_*)` chain a little further down in this file); this just
+   exposes the raw bits instead of formatting them to text. A separate parallel array (one u32 LE
+   per cell, same index as puae_dma_serialize's Cell[] grid) rather than widening Cell itself, so
+   the existing 8-byte Cell format (and vAmiga's matching encoder) is untouched.
+   `dr->evt2` (IPL/IPLSAMPLE/COPPERUSE — 3 bits) isn't included; lower-signal, can be added later
+   if needed. Returns byte count or 0. */
+uint32_t puae_dma_serialize_events(uint8_t *out)
+{
+	if (!dma_record[0]) return 0;
+	int t = dma_record_toggle ^ 1; /* last completed frame */
+	uint8_t *p = out;
+
+	for (int v = 0; v < PUAE_DMA_VPOS; v++) {
+		for (int h = 0; h < PUAE_DMA_HPOS; h++) {
+			struct dma_rec *dr = &dma_record[t][v * NR_DMA_REC_HPOS + h];
+			uint32_t evt = (dr->reg == 0xffff) ? 0 : dr->evt;
+			p[0] = evt & 0xff;
+			p[1] = (evt >> 8) & 0xff;
+			p[2] = (evt >> 16) & 0xff;
+			p[3] = (evt >> 24) & 0xff;
+			p += 4;
+		}
+	}
+	return (uint32_t)(PUAE_DMA_HPOS * PUAE_DMA_VPOS * 4);
+}
+
 /* puae_debug: live single-cell DMA type query for the last completed frame, without
    puae_dma_serialize's full-grid Cell[] repack cost. Returns a DMARECORD_*
    value (0 if none/out of range/no data) — used by the copper-overlay hover
