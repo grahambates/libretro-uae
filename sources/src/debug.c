@@ -8900,8 +8900,19 @@ uint32_t puae_dma_serialize(uint8_t *out)
 					addr = dr->reg & 0x1feU; /* bare register offset */
 				}
 			} else if (atype == DMARECORD_CPU) {
+				/* dr->reg is a *synthetic* marker for CPU cells, not a register offset (see
+				   puae_dma_get_cell_reg's doc comment below): bit 0x100 is the write flag, bits
+				   2:0 are the access size (1=byte). Writes are always data (extra&1==1), so this
+				   never collides with the instruction-fetch DMA_CODE case below. Without this, no
+				   CPU write (custom-register, chip-RAM, ...) was ever tagged DMA_WRITE in the
+				   profiler's Cell[] grid — breaking register/memory reconstruction and any
+				   anchor on a specific write (e.g. getBlits' BLTSIZE start detection). */
 				if ((dr->extra & 1) == 0)
 					flags = 4; /* DMA_CODE: instruction fetch (extra=0); data access (extra=1) stays 0 */
+				if (dr->reg & 0x100)
+					flags |= 1; /* DMA_WRITE */
+				if ((dr->reg & 7) == 1)
+					flags |= 2; /* DMA_BYTE */
 			} else if (atype == DMARECORD_BLITTER && (dr->extra & 7) == 3) {
 				flags = 1; /* DMA_WRITE: blitter D channel (CE mode) */
 			}
