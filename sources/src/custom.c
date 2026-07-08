@@ -1038,6 +1038,15 @@ static int output_res(int res)
 	return res;
 }
 
+/* puae_debug: blit-region pixel highlight. Per-plane running count of source
+ * (bitplane) pixels fetched so far on the current line — long_fetch_16 uses it
+ * to mark each fetched word's source-pixel position. Reset per line in
+ * reset_bpl_vars. See drawing.c bvis_* / puae_debug.c. */
+extern int g_blitTrackingEnabled;                            /* puae_debug.c */
+extern unsigned int puae_blitvis_fetch_level(uaecptr addr);  /* puae_debug.c: 1..DECAY, or 0 */
+extern void bvis_mark_source(int lineno, int pixelStart, int pixelCount, unsigned int level); /* drawing.c */
+static int bvis_fetch_cursor[MAX_PLANES];
+
 static void reset_bpl_vars()
 {
 	out_subpix[0] = 0;
@@ -1045,6 +1054,10 @@ static void reset_bpl_vars()
 	out_nbits = 0;
 	out_offs = 0;
 	toscr_nbits = 0;
+	if (g_blitTrackingEnabled) {
+		for (int p = 0; p < MAX_PLANES; p++)
+			bvis_fetch_cursor[p] = 0;
+	}
 	thisline_decision.bplres = output_res(bplcon0_res);
 }
 
@@ -3087,6 +3100,23 @@ static bool fetch(int nr, int fm, int hpos, bool addmodulo)
 	}
 #endif
 
+	/* puae_debug: blit-region highlight. This per-cycle path is the one that
+	 * actually runs while tracking is on (debug_dma disables the long_fetch
+	 * SPEEDUP path above at #if SPEEDUP). If this fetched word `p` was recently
+	 * blitter-written, mark its source pixels (bvis). fetchmode_bytes*8/... the
+	 * word covers (16 << fm) source pixels; the per-plane cursor tracks position
+	 * (reset per line in reset_bpl_vars), + one fetch unit + scroll delay for the
+	 * fetch→display pipeline. */
+	if (g_blitTrackingEnabled) {
+		int bvisDelay = toscr_delay_adjusted[nr & 1];
+		int bvisPixels = 16 << fm;
+		int fetchPixelStart = bvis_fetch_cursor[nr];
+		bvis_fetch_cursor[nr] += bvisPixels;
+		unsigned int level = puae_blitvis_fetch_level(p);
+		if (level)
+			bvis_mark_source(next_lineno, fetchPixelStart + bvisPixels + bvisDelay, bvisPixels, level);
+	}
+
 	switch (fm)
 	{
 	case 0:
@@ -4503,6 +4533,43 @@ STATIC_INLINE void long_fetch_16(int plane, int nwords, int weird_number_of_bits
 
 	bplpt[plane] += nwords * 2;
 	bplptx[plane] += nwords * 2;
+
+	/* puae_debug: mark this fetch's source pixels for the blit-region highlight.
+	 * Runs alongside the fast bulk read below — it does NOT force the slow
+	 * per-word path, just inspects each word's address against the write-tag.
+	 * Each word covers 16 source pixels; the per-plane cursor (reset per line in
+	 * reset_bpl_vars) tracks position, + one fetch unit + scroll delay for the
+	 * fetch→display pipeline. This is the fast path used when debug_dma is off
+	 * (blit-vis alone); fetch() covers the per-cycle path used when it is on. */
+	if (g_blitTrackingEnabled) {
+		uaecptr a = bpladdr;
+		int runStart = -1, runCount = 0;
+		unsigned int runLevel = 0;
+		for (int i = 0; i < nwords; i++) {
+			int fetchPixelStart = bvis_fetch_cursor[plane];
+			bvis_fetch_cursor[plane] += 16;
+			int pixelStart = fetchPixelStart + 16 + delay;
+			unsigned int level = puae_blitvis_fetch_level(a);
+			if (level && runLevel == level && pixelStart == runStart + runCount) {
+				runCount += 16;
+			} else {
+				if (runCount > 0)
+					bvis_mark_source(next_lineno, runStart, runCount, runLevel);
+				if (level) {
+					runStart = pixelStart;
+					runCount = 16;
+					runLevel = level;
+				} else {
+					runStart = -1;
+					runCount = 0;
+					runLevel = 0;
+				}
+			}
+			a += 2;
+		}
+		if (runCount > 0)
+			bvis_mark_source(next_lineno, runStart, runCount, runLevel);
+	}
 
 	if (real_pt == NULL) {
 		if (nwords > MAX_FETCH_TEMP) {
@@ -12053,6 +12120,12 @@ static int calculate_lineno(int vp)
 // vsync start
 void init_hardware_for_drawing_frame(void)
 {
+	/* puae_debug: NOTE — do NOT clear blit-region marks here. This runs at
+	 * vsync, which in the single-frame-per-retro_run model falls AFTER this
+	 * frame's fetches/line-draws but BEFORE video_cb (the blend), so clearing
+	 * here would wipe the marks a moment before they're drawn. The marks are
+	 * instead cleared at the END of bvis_blend_rgba (drawing.c), once consumed. */
+
 	/* Avoid this code in the first frame after a customreset.  */
 	if (prev_sprite_entries) {
 		int first_pixel = prev_sprite_entries[0].first_pixel;

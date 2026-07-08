@@ -2290,8 +2290,327 @@ static call_linetoscr pfield_do_linetoscr_normal, pfield_do_linetoscr_normal2;
 static call_linetoscr pfield_do_linetoscr_sprite, pfield_do_linetoscr_sprite2;
 static call_linetoscrb pfield_do_linetoscr_spriteonly;
 
+/* ===================================================================== *
+ * puae_debug: blit-region pixel highlight (render-time marking)
+ *
+ * Adapted from Engine9000's E9K_HACK_BLITTER_VIS. During the actual bitplane
+ * fetch (custom.c long_fetch_16) each fetched word whose chip-RAM source was
+ * recently written by the blitter is marked in SOURCE-pixel space (bvis_mark_
+ * source). When the line is drawn (pfield_do_linetoscr) those source pixels are
+ * projected to NATIVE (screen) pixels (bvis_project). At frame end the native
+ * marks are blended as a fading tint into the RGBA frame (bvis_blend_rgba,
+ * called from frontend_shim). Each mark carries a small decay LEVEL (1..DECAY)
+ * baked in at fetch time from the blit's age, which produces the fade. All of
+ * this is gated at runtime by g_blitTrackingEnabled — when off, the marking
+ * hooks and blend are cheap no-ops (bvis_src_mark_calls stays 0).
+ *
+ * Positions are pixel-accurate and live in the DIW area; there is no DMA-grid
+ * reconstruction. Native marks are stored in CROPPED framebuffer coordinates
+ * (bvis_mark_native subtracts retrox_crop/retroy_crop), so they map 1:1 onto
+ * the RGBA buffer the webview renders.
+ * ===================================================================== */
+extern int g_blitTrackingEnabled;                            /* puae_debug.c */
+extern int g_blitVisDecay;                                   /* puae_debug.c: max decay level */
+extern unsigned int puae_blitvis_fetch_level(uaecptr addr);  /* puae_debug.c: 1..decay, or 0 */
+extern unsigned short int retrow_crop, retroh_crop, retrox_crop, retroy_crop; /* libretro-core.c */
+
+#define BVIS_LINE_COUNT       ((MAXVPOS + MAXVPOS_WRAPLINES) * 2)
+#define BVIS_SRC_MARGIN       256
+#define BVIS_SRC_COUNT        ((MAX_PIXELS_PER_LINE * 2) + 1 + (BVIS_SRC_MARGIN * 2))
+#define BVIS_SRC_BIAS         (MAX_PIXELS_PER_LINE + BVIS_SRC_MARGIN)
+#define BVIS_SRC_INDEX_OFFSET (BVIS_SRC_BIAS - MAX_PIXELS_PER_LINE)
+#define BVIS_EDGE_NATIVE      32
+#define BVIS_EDGE_SOURCE      64
+
+/* Per-line marks: source pixels (bitplane pixel index, biased) and native
+ * pixels (cropped screen x). Element value = decay level (0 = unmarked). */
+static uae_u8 bvis_src[BVIS_LINE_COUNT][BVIS_SRC_COUNT];
+static uae_u8 bvis_native[BVIS_LINE_COUNT][MAX_PIXELS_PER_LINE];
+static int    bvis_native_min[BVIS_LINE_COUNT]; /* per-native-line dirty bounds, -1 = empty */
+static int    bvis_native_max[BVIS_LINE_COUNT];
+static int    bvis_src_line_ctx = -1;
+static int    bvis_native_line_ctx = -1;
+static uae_u32 bvis_src_mark_calls = 0;         /* source marks issued this frame (0 = skip project) */
+static int    bvis_resolved_src_line[LINESTATE_SIZE];
+static int    bvis_last_resolved_src_line = -1;
+
+/* Diagnostics (per frame): source marks, native pixels marked, pixels blended.
+ * Exposed via wasm_blit_vis_debug (puae_debug.c) to locate where the pipeline
+ * breaks if the highlight is invisible. */
+static uae_u32 bvis_dbg_native = 0;
+static uae_u32 bvis_dbg_blend = 0;
+static uae_u32 bvis_dbg_marksrc = 0;   /* cumulative: bvis_mark_source entries */
+static uae_u32 bvis_dbg_rej_line = 0;  /* cumulative: rejected (lineno OOR) */
+static uae_u32 bvis_dbg_rej_range = 0; /* cumulative: rejected (pixel range OOR) */
+static int     bvis_dbg_maxps = 0;     /* cumulative: max pixelStart seen */
+unsigned int bvis_debug_count(int which)
+{
+	switch (which) {
+	case 0: return bvis_src_mark_calls;
+	case 1: return bvis_dbg_native;
+	case 2: return bvis_dbg_blend;
+	case 6: return bvis_dbg_marksrc;
+	case 7: return bvis_dbg_rej_line;
+	case 8: return bvis_dbg_rej_range;
+	case 9: return (unsigned int)bvis_dbg_maxps;
+	default: return 0;
+	}
+}
+
+static int bvis_native_width(void)
+{
+	if (retrow_crop > 0 && retrow_crop <= MAX_PIXELS_PER_LINE)
+		return retrow_crop;
+	return MAX_PIXELS_PER_LINE;
+}
+static int bvis_native_height(void)
+{
+	if (retroh_crop > 0 && retroh_crop <= BVIS_LINE_COUNT)
+		return retroh_crop;
+	return BVIS_LINE_COUNT;
+}
+
+/* vsync start: forget last frame's marks. */
+static void bvis_clear_source_frame(void)
+{
+	memset(bvis_src, 0, sizeof(bvis_src));
+	memset(bvis_resolved_src_line, 0xff, sizeof(bvis_resolved_src_line));
+	bvis_last_resolved_src_line = -1;
+	bvis_src_mark_calls = 0;
+}
+static void bvis_clear_native_frame(void)
+{
+	memset(bvis_native, 0, sizeof(bvis_native));
+	for (int y = 0; y < BVIS_LINE_COUNT; y++) {
+		bvis_native_min[y] = -1;
+		bvis_native_max[y] = -1;
+	}
+	bvis_src_line_ctx = -1;
+	bvis_native_line_ctx = -1;
+}
+void bvis_clear_frame(void)   /* called from custom.c init_hardware_for_drawing_frame */
+{
+	bvis_clear_source_frame();
+	bvis_clear_native_frame();
+}
+
+/* Set the line being drawn: which source-mark line to read, which native
+ * (cropped) row to write. Called from pfield_draw_line. */
+static void bvis_set_line_context(int sourceLine, int nativeLine)
+{
+	bvis_src_line_ctx = (sourceLine >= 0 && sourceLine < BVIS_LINE_COUNT) ? sourceLine : -1;
+	bvis_native_line_ctx = (nativeLine >= 0 && nativeLine < BVIS_LINE_COUNT) ? nativeLine : -1;
+}
+
+/* Mark a run of source (bitplane) pixels on line `lineno` with decay `level`.
+ * Called from custom.c long_fetch_16 for each blitter-written fetched word. */
+void bvis_mark_source(int lineno, int pixelStart, int pixelCount, unsigned int level)
+{
+	if (level == 0 || pixelCount <= 0)
+		return;
+	bvis_dbg_marksrc++;
+	if (pixelStart > bvis_dbg_maxps)
+		bvis_dbg_maxps = pixelStart;
+	if (lineno < 0 || lineno >= BVIS_LINE_COUNT) {
+		bvis_dbg_rej_line++;
+		return;
+	}
+	int start = pixelStart + BVIS_SRC_BIAS;
+	int end = pixelStart + pixelCount + BVIS_SRC_BIAS;
+	if (end <= 0 || start >= BVIS_SRC_COUNT) {
+		bvis_dbg_rej_range++;
+		return;
+	}
+	if (start < 0)
+		start = 0;
+	if (end > BVIS_SRC_COUNT)
+		end = BVIS_SRC_COUNT;
+	bvis_src_mark_calls++;
+	uae_u8 *row = bvis_src[lineno];
+	for (int x = start; x < end; x++)
+		row[x] = (uae_u8)level;
+}
+
+/* Mark a run of native (cropped screen) pixels on the current native line. */
+static void bvis_mark_native(int pixelStart, int pixelCount, unsigned int level)
+{
+	if (level == 0 || pixelCount <= 0)
+		return;
+	if (bvis_native_line_ctx < 0 || bvis_native_line_ctx >= BVIS_LINE_COUNT)
+		return;
+	int nativeY = bvis_native_line_ctx - (int)retroy_crop;
+	int nativeHeight = bvis_native_height();
+	if (nativeY < 0 || nativeY >= nativeHeight)
+		return;
+	int start = pixelStart - (int)retrox_crop;
+	int end = pixelStart + pixelCount - (int)retrox_crop;
+	int nativeWidth = bvis_native_width();
+	if (end <= 0 || start >= nativeWidth)
+		return;
+	if (start < 0)
+		start = 0;
+	if (end > nativeWidth)
+		end = nativeWidth;
+	if (start >= end)
+		return;
+	if (bvis_native_min[nativeY] < 0 || start < bvis_native_min[nativeY])
+		bvis_native_min[nativeY] = start;
+	if (bvis_native_max[nativeY] < end - 1)
+		bvis_native_max[nativeY] = end - 1;
+	bvis_dbg_native += (uae_u32)(end - start);
+	uae_u8 *row = bvis_native[nativeY];
+	for (int x = start; x < end; x++)
+		if (level > row[x])
+			row[x] = (uae_u8)level;
+}
+
+/* Line doubling: the emulator memcpy's row_map[srcLine] to row_map[dstLine] so
+ * one Amiga scanline fills two framebuffer rows. That copy bypasses bvis_project,
+ * so mirror the native marks here or only every other canvas row gets tinted.
+ * srcLine/dstLine are full (uncropped) native rows, as passed to pfield_draw_line. */
+static void bvis_copy_native_row(int srcLine, int dstLine)
+{
+	int sy = srcLine - (int)retroy_crop;
+	int dy = dstLine - (int)retroy_crop;
+	int nh = bvis_native_height();
+	if (sy < 0 || sy >= nh || dy < 0 || dy >= nh)
+		return;
+	if (bvis_native_min[sy] < 0)
+		return; /* nothing marked on the source row */
+	memcpy(bvis_native[dy], bvis_native[sy], sizeof(bvis_native[dy]));
+	bvis_native_min[dy] = bvis_native_min[sy];
+	bvis_native_max[dy] = bvis_native_max[sy];
+}
+
+static unsigned int bvis_find_source_level(const uae_u8 *row, int rangeStart, int rangeEnd)
+{
+	if (rangeStart < 0)
+		rangeStart = 0;
+	if (rangeEnd > BVIS_SRC_COUNT)
+		rangeEnd = BVIS_SRC_COUNT;
+	for (int x = rangeStart; x < rangeEnd; x++)
+		if (row[x])
+			return row[x];
+	return 0;
+}
+static unsigned int bvis_find_source_level_from(const uae_u8 *row, int rangeStart, int rangeEnd, int *cursorX)
+{
+	if (rangeStart < 0)
+		rangeStart = 0;
+	if (rangeEnd > BVIS_SRC_COUNT)
+		rangeEnd = BVIS_SRC_COUNT;
+	if (*cursorX < rangeStart)
+		*cursorX = rangeStart;
+	if (*cursorX >= rangeEnd)
+		return 0;
+	for (int x = *cursorX; x < rangeEnd; x++) {
+		if (row[x]) {
+			*cursorX = x;
+			return row[x];
+		}
+	}
+	*cursorX = rangeEnd;
+	return 0;
+}
+
+/* Project the source-pixel range [sourceStart,sourceEnd) drawn to native range
+ * [nativeStart,nativeEnd) — mapping each native pixel back to its source pixel
+ * and carrying the mark. Handles any source:native scale (lores/hires/shres,
+ * stretch/shrink). Called from pfield_do_linetoscr after the pixels are drawn. */
+static void bvis_project(int sourceStart, int sourceEnd, int nativeStart, int nativeEnd)
+{
+	if (bvis_src_mark_calls == 0)
+		return;
+	if (bvis_src_line_ctx < 0 || bvis_src_line_ctx >= BVIS_LINE_COUNT)
+		return;
+	if (sourceEnd <= sourceStart || nativeEnd <= nativeStart)
+		return;
+
+	int sourceWidth = sourceEnd - sourceStart;
+	int nativeWidth = nativeEnd - nativeStart;
+	const uae_u8 *row = bvis_src[bvis_src_line_ctx];
+	int cursor = sourceStart + BVIS_SRC_INDEX_OFFSET;
+	unsigned int runLevel = 0;
+	int runStart = 0, runCount = 0;
+	for (int nativeX = nativeStart; nativeX < nativeEnd; nativeX++) {
+		int relStart = nativeX - nativeStart;
+		int relEnd = relStart + 1;
+		int srcRangeStart = sourceStart + (int)(((int64_t)relStart * sourceWidth) / nativeWidth);
+		int srcRangeEnd = sourceStart + (int)((((int64_t)relEnd * sourceWidth) + nativeWidth - 1) / nativeWidth);
+		if (srcRangeEnd <= srcRangeStart)
+			srcRangeEnd = srcRangeStart + 1;
+		int storeStart = srcRangeStart + BVIS_SRC_INDEX_OFFSET;
+		int storeEnd = srcRangeEnd + BVIS_SRC_INDEX_OFFSET;
+		/* Only mark a native pixel whose actual mapped source pixel was blitted.
+		 * (Engine9000's edge-fallback that searched ±BVIS_EDGE_SOURCE beyond the
+		 * range is removed: do_color_changes splits a line into per-colour-change
+		 * segments, so the fallback smears marks across every segment boundary —
+		 * e.g. a sliver hanging off a filled box's corner.) */
+		unsigned int level = bvis_find_source_level_from(row, storeStart, storeEnd, &cursor);
+		if (level != 0 && runCount > 0 && runLevel == level) {
+			runCount++;
+			continue;
+		}
+		/* xlinebuffer dpix → retro_bmp column: the display content is copied from
+		 * xlinebuffer + linetoscr_x_adjust_pixels into row_map (see pfield_draw_
+		 * line's memcpy), so subtract that offset. bvis_mark_native then applies
+		 * the libretro crop (retrox_crop) on top. */
+		if (runCount > 0)
+			bvis_mark_native(runStart - linetoscr_x_adjust_pixels, runCount, runLevel);
+		if (level != 0) {
+			runLevel = level;
+			runStart = nativeX;
+			runCount = 1;
+		} else {
+			runLevel = 0;
+			runStart = 0;
+			runCount = 0;
+		}
+	}
+	if (runCount > 0)
+		bvis_mark_native(runStart - linetoscr_x_adjust_pixels, runCount, runLevel);
+}
+
+/* Frame end: blend the native marks into the RGBA frame as a fading cyan tint.
+ * rgba is the cropped framebuffer the webview shows; w/h its dimensions. Marks
+ * are already in cropped coords, so (y,x) index directly. */
+void bvis_blend_rgba(unsigned char *rgba, int w, int h)
+{
+	if (bvis_src_mark_calls != 0) {
+		for (int y = 0; y < h && y < BVIS_LINE_COUNT; y++) {
+			int minx = bvis_native_min[y];
+			int maxx = bvis_native_max[y];
+			if (minx < 0)
+				continue;
+			if (maxx >= w)
+				maxx = w - 1;
+			const uae_u8 *row = bvis_native[y];
+			unsigned char *dst = rgba + (size_t)y * w * 4;
+			for (int x = minx; x <= maxx; x++) {
+				unsigned int level = row[x];
+				if (!level)
+					continue;
+				/* alpha 0..~0.75 scaled by decay level; tint toward cyan (0,220,210).
+				 * Normalise by the current max level (g_blitVisDecay). */
+				int denom = g_blitVisDecay > 0 ? g_blitVisDecay : 1;
+				unsigned int a = (level * 192) / denom; /* 0..192 */
+				unsigned char *p = dst + (size_t)x * 4;
+				p[0] = (unsigned char)((p[0] * (255 - a) + 0   * a) / 255);
+				p[1] = (unsigned char)((p[1] * (255 - a) + 220 * a) / 255);
+				p[2] = (unsigned char)((p[2] * (255 - a) + 210 * a) / 255);
+				bvis_dbg_blend++;
+			}
+		}
+	}
+	/* Marks consumed — clear now, not at frame start (see custom.c note), so the
+	 * next frame's fetches/line-draws refill from empty. */
+	bvis_clear_source_frame();
+	bvis_clear_native_frame();
+}
+
 static void pfield_do_linetoscr(int start, int stop, int blank)
 {
+	int sourceStart = src_pixel;
 	int pixel = pfield_do_linetoscr_normal(src_pixel, start, stop);
 	if (exthblank || exthblank_force) {
 		pfield_do_fill_line(start, stop, 1);
@@ -2303,10 +2622,13 @@ static void pfield_do_linetoscr(int start, int stop, int blank)
 #endif
 		pfield_do_fill_line(start, stop, bb ? 1 : 0);
 	}
+	if (g_blitTrackingEnabled)
+		bvis_project(sourceStart, pixel, start, stop);
 	src_pixel = pixel;
 }
 static void pfield_do_linetoscr_spr(int start, int stop, int blank)
 {
+	int sourceStart = src_pixel;
 	int pixel;
 	if (extborder) {
 #if EXTBORDER_BLANK
@@ -2322,6 +2644,8 @@ static void pfield_do_linetoscr_spr(int start, int stop, int blank)
 			pfield_do_fill_line(start, stop, 1);
 		}
 	}
+	if (g_blitTrackingEnabled)
+		bvis_project(sourceStart, pixel, start, stop);
 	src_pixel = pixel;
 }
 static int pfield_do_nothing(int a, int b, int c)
@@ -3895,6 +4219,7 @@ static void pfield_draw_line(struct vidbuffer *vb, int lineno, int gfx_ypos, int
 	bool have_color_changes;
 	enum double_how dh;
 	int ls = linestate[lineno];
+	int blitterVisSourceLine = lineno;
 
 	dp_for_drawing = line_decisions + lineno;
 	dip_for_drawing = curr_drawinfo + lineno;
@@ -3922,6 +4247,18 @@ static void pfield_draw_line(struct vidbuffer *vb, int lineno, int gfx_ypos, int
 	case LINE_AS_PREVIOUS:
 		dp_for_drawing--;
 		dip_for_drawing--;
+		/* This line reuses the previous decided line's data — mark it against
+		 * that line's source marks (bvis_last_resolved_src_line / resolved[]). */
+		if (bvis_last_resolved_src_line >= 0 && bvis_last_resolved_src_line < BVIS_LINE_COUNT) {
+			blitterVisSourceLine = bvis_last_resolved_src_line;
+		} else {
+			blitterVisSourceLine = lineno - 1;
+			if (lineno > 0 && lineno - 1 < LINESTATE_SIZE) {
+				int r = bvis_resolved_src_line[lineno - 1];
+				if (r >= 0 && r < BVIS_LINE_COUNT)
+					blitterVisSourceLine = r;
+			}
+		}
 		linestate[lineno] = LINE_DONE_AS_PREVIOUS;
 		if (dp_for_drawing->plfleft < 0)
 			border = 1;
@@ -3946,6 +4283,14 @@ static void pfield_draw_line(struct vidbuffer *vb, int lineno, int gfx_ypos, int
 		linestate[lineno] = LINE_DONE;
 		break;
 	}
+
+	if (blitterVisSourceLine < 0 || blitterVisSourceLine >= BVIS_LINE_COUNT)
+		blitterVisSourceLine = -1;
+	if (lineno >= 0 && lineno < LINESTATE_SIZE)
+		bvis_resolved_src_line[lineno] = blitterVisSourceLine;
+	if (blitterVisSourceLine >= 0)
+		bvis_last_resolved_src_line = blitterVisSourceLine;
+	bvis_set_line_context(blitterVisSourceLine, gfx_ypos);
 
 	have_color_changes = is_color_changes(dip_for_drawing);
 	if (vb_state != dp_for_drawing->vb) {
@@ -4134,6 +4479,10 @@ static void pfield_draw_line(struct vidbuffer *vb, int lineno, int gfx_ypos, int
 		hposblank = tmp;
 
 	}
+
+	/* Mirror this line's blit marks onto its doubled framebuffer row. */
+	if (g_blitTrackingEnabled && do_double && follow_ypos >= 0)
+		bvis_copy_native_row(gfx_ypos, follow_ypos);
 }
 
 static void center_image (void)

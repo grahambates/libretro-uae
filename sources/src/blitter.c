@@ -303,6 +303,13 @@ static void record_dma_blit_val(uae_u32 v)
 #endif
 }
 
+/* puae_debug: blit-region highlight — the actual write-tag is stamped in
+ * blit_chipmem_agnus_wput (below), the single D-channel write funnel used by
+ * both the fast and cycle-exact blitters (incl. fill mode), so tracking needs
+ * neither cycle-exact mode nor debug_dma. */
+extern int g_blitTrackingEnabled;
+extern void puae_blitvis_stamp_write(uaecptr addr);
+
 static void record_dma_blit(uae_u16 reg, uae_u16 v, uae_u32 addr, int hpos)
 {
 #ifdef DEBUGGER
@@ -504,8 +511,14 @@ static void blit_chipmem_agnus_wput(uaecptr addr, uae_u32 w, uae_u32 typemask)
 #ifdef DEBUGGER
 		debug_putpeekdma_chipram(addr, w, typemask, 0x000, 0x054);
 #endif
-		if (debug_blitter_enabled)
+		if (debug_blitter_enabled) {
 			chipmem_wput_indirect(addr, w);
+			/* puae_debug: tag the written chip-RAM word for the blit-region
+			 * highlight — the single funnel for all D-channel writes (fast/CE,
+			 * incl. fill), so no cycle-exact/debug_dma needed. */
+			if (g_blitTrackingEnabled)
+				puae_blitvis_stamp_write(addr);
+		}
 		regs.chipset_latch_rw = w;
 	}
 }
