@@ -27,7 +27,7 @@ extern bool libretro_frame_end;
 extern int puae_debug_instructionHook(uaecptr pc, uae_u16 opcode);
 extern void puae_debug_check_catchpoint(uint32_t vector, uint32_t pc);
 extern void puae_debug_request_break_before_next_instr(void);
-extern void puae_debug_exceptionEnter(uaecptr pc);
+extern void puae_debug_exceptionEnter(uaecptr pc, uae_u32 resumeSp, int wasSuper);
 #endif
 
 #include "options.h"
@@ -2806,6 +2806,7 @@ static void Exception_ce000 (int nr)
 {
 	uae_u32 currpc = m68k_getpc (), newpc;
 	int sv = regs.s;
+	uae_u32 entrySp = m68k_areg(regs, 7); /* pre-dispatch SP, for puae_debug_exceptionEnter */
 	int start, interrupt;
 	int vector_nr = nr;
 	int frame_id = 0;
@@ -2968,7 +2969,7 @@ kludge_me_do:
 	branch_stack_push(currpc, currpc);
 #endif
 #ifdef __LIBRETRO__
-	puae_debug_exceptionEnter(currpc);
+	puae_debug_exceptionEnter(currpc, entrySp, sv);
 #endif
 	regs.ir = x_get_word(m68k_getpc()); // prefetch 1
 	if (hardware_bus_error) {
@@ -3200,6 +3201,7 @@ static void Exception_normal (int nr)
 	uae_u32 currpc = m68k_getpc();
 	uae_u32 nextpc;
 	int sv = regs.s;
+	uae_u32 entrySp = m68k_areg(regs, 7); /* pre-dispatch SP, for puae_debug_exceptionEnter */
 	int interrupt;
 	int vector_nr = nr;
 	bool g1 = false;
@@ -3464,7 +3466,7 @@ kludge_me_do:
 	branch_stack_push(currpc, nextpc);
 #endif
 #ifdef __LIBRETRO__
-	puae_debug_exceptionEnter(currpc);
+	puae_debug_exceptionEnter(currpc, entrySp, sv);
 #endif
 	regs.ipl_pin = intlev();
 	ipl_fetch_now();
