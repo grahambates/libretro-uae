@@ -27,6 +27,7 @@ extern bool libretro_frame_end;
 extern int puae_debug_instructionHook(uaecptr pc, uae_u16 opcode);
 extern void puae_debug_check_catchpoint(uint32_t vector, uint32_t pc);
 extern void puae_debug_request_break_before_next_instr(void);
+extern void puae_debug_exceptionEnter(uaecptr pc);
 #endif
 
 #include "options.h"
@@ -2966,6 +2967,9 @@ kludge_me_do:
 #ifdef DEBUGGER
 	branch_stack_push(currpc, currpc);
 #endif
+#ifdef __LIBRETRO__
+	puae_debug_exceptionEnter(currpc);
+#endif
 	regs.ir = x_get_word(m68k_getpc()); // prefetch 1
 	if (hardware_bus_error) {
 		if (nr == 2 || nr == 3) {
@@ -3458,6 +3462,9 @@ kludge_me_do:
 #endif
 #ifdef DEBUGGER
 	branch_stack_push(currpc, nextpc);
+#endif
+#ifdef __LIBRETRO__
+	puae_debug_exceptionEnter(currpc);
 #endif
 	regs.ipl_pin = intlev();
 	ipl_fetch_now();
