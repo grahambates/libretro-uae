@@ -8855,10 +8855,12 @@ bool debug_sprintf(uaecptr addr, uae_u32 val, int size)
 #define PUAE_DMA_VPOS 313
 
 static const uint8_t puae_type_to_owner[10] = {
-	0, 2, 1, 22, 0, 23, 0, 0, 3, 0
-	/* 0:none  1:REFRESH→2  2:CPU→1  3:COPPER→22
-	   4:AUDIO→var  5:BLITTER→23  6:BPL→var  7:SPR→var
-	   8:DISK→3  9:CONFLICT→0 */
+	0, 2, 1, 24, 0, 25, 0, 0, 3, 0
+	/* 0:none  1:REFRESH→2  2:CPU→1  3:COPPER→24
+	   4:AUDIO→var  5:BLITTER→25  6:BPL→var  7:SPR→var
+	   8:DISK→3  9:CONFLICT→0
+	   BusOwner ordinals (src/shared/profilerTypes.ts): BPL1-8 = 8-15 (up from BPL1-6's
+	   old 8-13, widened for AGA's 8 planes), SPRITE0-7 = 16-23, COPPER = 24, BLITTER = 25. */
 };
 
 uint32_t puae_dma_serialize(uint8_t *out)
@@ -8883,8 +8885,8 @@ uint32_t puae_dma_serialize(uint8_t *out)
 				owner = puae_type_to_owner[atype];
 				if (owner == 0 && atype != 0 && atype != 9) {
 					if (atype == 4) owner = 4 + (dr->extra & 3);        /* AUD0-3 */
-					else if (atype == 6) owner = 8 + (dr->extra & 7);   /* BPL1-6 */
-					else if (atype == 7) owner = 14 + (dr->extra & 7);  /* SPR0-7 */
+					else if (atype == 6) owner = 8 + (dr->extra & 7);   /* BPL1-8 (AGA) */
+					else if (atype == 7) owner = 16 + (dr->extra & 7);  /* SPR0-7 */
 				}
 			}
 

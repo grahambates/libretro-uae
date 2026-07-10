@@ -86,6 +86,14 @@ extern void puae_get_display_regs(uae_u16 *out);
 #define PUAE_CUSTOM_REGS_RAW_SIZE (8 + 256 * 2)
 extern void puae_get_custom_regs_raw(uae_u8 *out);
 
+// puae_debug: see definition in custom.c. Fills `out` (must hold 256 uae_u32 entries) with
+// AGA's full 256-entry, already-24-bit-per-channel palette (current_colors.color_regs_aga) —
+// unlike puae_get_custom_regs_raw's COLOR00-31 window, which only ever reflects whichever
+// BPLCON3 bank was last selected, downsampled back to 4-bit-per-channel for the OCS/ECS-shaped
+// savestate format. Zero-fills `out` when not currently in AGA mode.
+#define PUAE_AGA_COLOR_COUNT 256
+extern void puae_get_aga_colors_raw(uae_u32 *out);
+
 // puae_debug: called once per scanline from hsync_handler() (custom.c),
 // after all per-line state updates. Drives the optional hblank callback
 // registered via puae_debug_set_hblank_callback() (see puae_debug.h), used to

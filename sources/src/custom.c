@@ -17447,3 +17447,22 @@ void puae_get_custom_regs_raw(uae_u8 *out)
 	memset(out, 0, PUAE_CUSTOM_REGS_RAW_SIZE);
 }
 #endif
+
+// puae_debug: AGA's full 256-entry palette (current_colors.color_regs_aga), already
+// reconstructed to 24-bit-per-channel RGB by BPLCON3(LOCT)-aware COLORxx write handling
+// (custom_bank_wput's AGA branch) and bank-selected (BPLCON3 BANK bits) across all 8 banks
+// simultaneously — unlike the CPU-visible COLOR00-31 window (puae_get_custom_regs_raw),
+// which only ever shows one bank at reduced precision. `out` must hold
+// PUAE_AGA_COLOR_COUNT (256) uae_u32 entries; each is 0x00RRGGBB (genlock flag masked off).
+void puae_get_aga_colors_raw(uae_u32 *out)
+{
+#ifdef AGA
+	if (aga_mode) {
+		for (int i = 0; i < 256; i++) {
+			out[i] = current_colors.color_regs_aga[i] & 0xffffff;
+		}
+		return;
+	}
+#endif
+	memset(out, 0, PUAE_AGA_COLOR_COUNT * sizeof(uae_u32));
+}
