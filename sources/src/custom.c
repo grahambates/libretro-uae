@@ -1637,7 +1637,9 @@ static void decide_hdiw_check_start(int start_diw_hpos, int end_diw_hpos)
 				}
 #ifdef DEBUGGER
 				if (debug_dma) {
-					record_dma_event(DMA_EVENT_HDIWS, diw_to_hpos(first), vpos);
+					// val is the Denise/shres coordinate expected by diw_to_hpos(). `first`
+					// is already converted to window pixels; passing it here scales twice.
+					record_dma_event(DMA_EVENT_HDIWS, diw_to_hpos(val), vpos);
 				}
 #endif
 			}
@@ -1666,7 +1668,8 @@ static void decide_hdiw_check_stop(int start_diw_hpos, int end_diw_hpos)
 				last_diwlastword = val;
 #ifdef DEBUGGER
 				if (debug_dma) {
-					record_dma_event(DMA_EVENT_HDIWE, diw_to_hpos(last), vpos);
+					// Keep debugger event coordinates in the same domain as the restart path.
+					record_dma_event(DMA_EVENT_HDIWE, diw_to_hpos(val), vpos);
 				}
 #endif
 			}
@@ -11254,7 +11257,9 @@ static void do_copper_fetch(int hpos, uae_u16 id)
 			cop_state.hcmp = (cop_state.ir[0] & cop_state.ir[1] & 0xFE);
 
 #ifdef DEBUGGER
-			record_copper(debugip - 4, debugip, cop_state.ir[0], cop_state.ir[1], hpos, vpos);
+			if (debug_copper) {
+				record_copper(debugip - 4, debugip, cop_state.ir[0], cop_state.ir[1], hpos, vpos);
+			}
 #endif
 
 		} else {
