@@ -214,7 +214,17 @@ else ifneq (,$(filter $(platform), ps3 psl1ght))
 # Emscripten
 else ifeq ($(platform), emscripten)
    TARGET := $(TARGET_NAME)_libretro_$(platform).bc
-   CFLAGS    += -DHAVE_MEMALIGN -DHAVE_ASPRINTF -I$(ZLIB_DIR)
+   # -flto=thin: embeds LLVM bitcode in each .o (this file's build produces an ar
+   # archive, not a final link — see build.sh's Stage 1 comment) so the final emcc
+   # link in build.sh (also passed -flto=thin) can inline across this archive's
+   # objects and puae_debug.c/frontend_shim.c's own compilation units — notably
+   # letting puae_debug_instructionHook (called from newcpu.c on every single
+   # retired 68k instruction) actually get inlined into its call site instead of
+   # staying a real cross-TU function call. ThinLTO, not full -flto: full LTO's
+   # link time scales badly with a codebase this size (this core plus the 7zip/
+   # zlib/libretro-common deps graft.sh also builds), and ThinLTO captures the
+   # cross-module inlining we're actually after without that build-time cost.
+   CFLAGS    += -DHAVE_MEMALIGN -DHAVE_ASPRINTF -I$(ZLIB_DIR) -flto=thin
    STATIC_LINKING=1
 
 # iOS
