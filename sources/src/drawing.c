@@ -2293,16 +2293,41 @@ static call_linetoscrb pfield_do_linetoscr_spriteonly;
 /* ===================================================================== *
  * puae_debug: blit-region pixel highlight (render-time marking)
  *
- * Adapted from Engine9000's E9K_HACK_BLITTER_VIS. During the actual bitplane
- * fetch (custom.c long_fetch_16) each fetched word whose chip-RAM source was
- * recently written by the blitter is marked in SOURCE-pixel space (bvis_mark_
- * source). When the line is drawn (pfield_do_linetoscr) those source pixels are
- * projected to NATIVE (screen) pixels (bvis_project). At frame end the native
- * marks are blended as a fading tint into the RGBA frame (bvis_blend_rgba,
- * called from frontend_shim). Each mark carries a small decay LEVEL (1..DECAY)
- * baked in at fetch time from the blit's age, which produces the fade. All of
- * this is gated at runtime by g_blitTrackingEnabled — when off, the marking
- * hooks and blend are cheap no-ops (bvis_src_mark_calls stays 0).
+ * Adapted from Engine9000's E9K_HACK_BLITTER_VIS, then REDESIGNED after three
+ * rounds of chasing edge-alignment bugs in a fetch-time "running cursor"
+ * approach (see git history / PR discussion): that version tried to track,
+ * word by word AS custom.c's fetch functions ran, which source-pixel position
+ * each fetched word ended up at — which meant mirroring ALL of custom.c's own
+ * fetch-timing internals (DDF-fetch-to-display CCK delay, BPLCON1 scroll
+ * delay, AND the 32-bit bit-accumulation/remainder batching long_fetch_16
+ * uses to pack two 16-bit words per write) in a SEPARATE, parallel piece of
+ * bookkeeping — any of which drifting out of sync with the real fetch path
+ * shows up as a small, hard-to-pin-down position error, often only visible at
+ * the edges of a large blitted region.
+ *
+ * This version sidesteps all of that: instead of tracking WHERE a fetched
+ * word ends up, it computes DIRECTLY, at drawTIME, which chip-RAM word a
+ * given source pixel came from — using exactly the same inputs the blitter
+ * write-tracking side (puae_debug.c's puae_blitvis_stamp_write) already
+ * consumes, and nothing else. For bitplane `p`, source-pixel N (0-based from
+ * this line's own fetch start) came from chip address
+ * `bvis_line_bplpt[lineno][p] + (N / (16 << fm)) * ((16 << fm) / 8)` — i.e.
+ * the Nth pixel's fetched-word index times that word's byte width (2 bytes
+ * at fm=0, but 4/8 for AGA's 32/64-bit fetches — matches fetch()'s own
+ * `bplpt[nr] += fetchmode_bytes`). bplpt is already tracked correctly by the
+ * real (non-debug) fetch code for every resolution/
+ * fetch-mode/modulo case, so this needs no separate delay/timing modelling at
+ * all. bvis_project (below) computes this per native pixel and queries
+ * puae_blitvis_fetch_level directly — no more fetch-time marking step, and
+ * so no more bvis_src[]/bvis_mark_source to keep in sync with it.
+ *
+ * When the line is drawn (pfield_do_linetoscr) native (screen) pixels are
+ * marked directly from that address lookup (bvis_project). At frame end the
+ * native marks are blended as a fading tint into the RGBA frame
+ * (bvis_blend_rgba, called from frontend_shim). Each mark carries a small
+ * decay LEVEL (1..DECAY) baked in from the blit's age (puae_blitvis_fetch_
+ * level), which produces the fade. All of this is gated at runtime by
+ * g_blitTrackingEnabled — when off, it's a cheap no-op.
  *
  * Positions are pixel-accurate and live in the DIW area; there is no DMA-grid
  * reconstruction. Native marks are stored in CROPPED framebuffer coordinates
@@ -2315,46 +2340,84 @@ extern unsigned int puae_blitvis_fetch_level(uaecptr addr);  /* puae_debug.c: 1.
 extern unsigned short int retrow_crop, retroh_crop, retrox_crop, retroy_crop; /* libretro-core.c */
 
 #define BVIS_LINE_COUNT       ((MAXVPOS + MAXVPOS_WRAPLINES) * 2)
-#define BVIS_SRC_MARGIN       256
-#define BVIS_SRC_COUNT        ((MAX_PIXELS_PER_LINE * 2) + 1 + (BVIS_SRC_MARGIN * 2))
-#define BVIS_SRC_BIAS         (MAX_PIXELS_PER_LINE + BVIS_SRC_MARGIN)
-#define BVIS_SRC_INDEX_OFFSET (BVIS_SRC_BIAS - MAX_PIXELS_PER_LINE)
-#define BVIS_EDGE_NATIVE      32
-#define BVIS_EDGE_SOURCE      64
 
-/* Per-line marks: source pixels (bitplane pixel index, biased) and native
- * pixels (cropped screen x). Element value = decay level (0 = unmarked). */
-static uae_u8 bvis_src[BVIS_LINE_COUNT][BVIS_SRC_COUNT];
+/* Per-line snapshot of each plane's bitplane pointer at the START of that
+ * line's own fetch (before any of its words are fetched) — see the big
+ * comment above. Taken once per line, from custom.c's reset_bpl_vars (the
+ * exact point the old bvis_fetch_cursor used to reset), via
+ * bvis_snapshot_line_fetch below. fm/nrPlanes travel with it since the
+ * pixels-per-word divisor and how many planes to check both depend on them,
+ * and (rare, but real on AGA) can differ between lines. */
+static uaecptr bvis_line_bplpt[BVIS_LINE_COUNT][MAX_PLANES];
+static int     bvis_line_fm[BVIS_LINE_COUNT];
+static int     bvis_line_planes[BVIS_LINE_COUNT];
+/* Per-plane-parity BPLCON1 scroll delay, in plain lores pixels (already
+ * converted from "shres" units by custom.c before the snapshot — see
+ * bvis_snapshot_line_fetch's caller). A real, exact, per-plane (odd/even)
+ * additive shift on top of the one-fetch-unit base latency: real chip-RAM
+ * fetches lead their on-screen appearance by exactly one fetch unit plus this
+ * amount, no more, no less — not a margin, an exact value. */
+static int     bvis_line_delay[BVIS_LINE_COUNT][2];
+
+/* Per-line, per-plane count of real fetch units (fetchmode_bytes-sized chip
+ * accesses — the same granularity bvis_project's own word-index math uses)
+ * this line's bitplane fetch actually performed, snapshotted once the line's
+ * fetch is finalized (custom.c's finish_final_fetch/finish_decisions, via
+ * bvis_snapshot_line_wordcount below — NOT reset_bpl_vars, since the real
+ * count isn't known until fetching for the line is done). Anything beyond
+ * this, for a given plane, has no real chip address at all — it's border/
+ * DIW-only. (plflinelen/out_offs looked like a ready-made word count but
+ * turned out to be a display-side, post-shift bit-accumulation counter in
+ * different units — this counts the real fetches directly instead.) */
+static int bvis_line_words[BVIS_LINE_COUNT][MAX_PLANES];
+
 static uae_u8 bvis_native[BVIS_LINE_COUNT][MAX_PIXELS_PER_LINE];
 static int    bvis_native_min[BVIS_LINE_COUNT]; /* per-native-line dirty bounds, -1 = empty */
 static int    bvis_native_max[BVIS_LINE_COUNT];
-static int    bvis_src_line_ctx = -1;
+static int    bvis_src_line_ctx = -1;    /* which line's bvis_line_* snapshot bvis_project reads */
 static int    bvis_native_line_ctx = -1;
-static uae_u32 bvis_src_mark_calls = 0;         /* source marks issued this frame (0 = skip project) */
 static int    bvis_resolved_src_line[LINESTATE_SIZE];
 static int    bvis_last_resolved_src_line = -1;
 
-/* Diagnostics (per frame): source marks, native pixels marked, pixels blended.
- * Exposed via wasm_blit_vis_debug (puae_debug.c) to locate where the pipeline
- * breaks if the highlight is invisible. */
+/* Diagnostics (per frame): native pixels marked, pixels blended. Exposed via
+ * wasm_blit_vis_debug (puae_debug.c) to locate where the pipeline breaks if
+ * the highlight is invisible. */
 static uae_u32 bvis_dbg_native = 0;
 static uae_u32 bvis_dbg_blend = 0;
-static uae_u32 bvis_dbg_marksrc = 0;   /* cumulative: bvis_mark_source entries */
-static uae_u32 bvis_dbg_rej_line = 0;  /* cumulative: rejected (lineno OOR) */
-static uae_u32 bvis_dbg_rej_range = 0; /* cumulative: rejected (pixel range OOR) */
-static int     bvis_dbg_maxps = 0;     /* cumulative: max pixelStart seen */
 unsigned int bvis_debug_count(int which)
 {
 	switch (which) {
-	case 0: return bvis_src_mark_calls;
 	case 1: return bvis_dbg_native;
 	case 2: return bvis_dbg_blend;
-	case 6: return bvis_dbg_marksrc;
-	case 7: return bvis_dbg_rej_line;
-	case 8: return bvis_dbg_rej_range;
-	case 9: return (unsigned int)bvis_dbg_maxps;
 	default: return 0;
 	}
+}
+
+/* Called once per line from custom.c's reset_bpl_vars, while g_blitTrackingEnabled. */
+void bvis_snapshot_line_fetch(int lineno, int nr_planes, int fm, const uaecptr *bplpt, const int *delay_px)
+{
+	int p;
+	if (lineno < 0 || lineno >= BVIS_LINE_COUNT)
+		return;
+	bvis_line_fm[lineno] = fm;
+	bvis_line_planes[lineno] = nr_planes > MAX_PLANES ? MAX_PLANES : (nr_planes < 0 ? 0 : nr_planes);
+	for (p = 0; p < MAX_PLANES; p++)
+		bvis_line_bplpt[lineno][p] = bplpt[p];
+	bvis_line_delay[lineno][0] = delay_px[0];
+	bvis_line_delay[lineno][1] = delay_px[1];
+}
+
+/* Called once a line's bitplane fetch is finalized, from custom.c's
+ * finish_decisions (finish_final_fetch and its plflinelen<0 fallback), while
+ * g_blitTrackingEnabled. word_counts[p] is how many real fetchmode_bytes-sized
+ * chip accesses plane p performed this line. */
+void bvis_snapshot_line_wordcount(int lineno, const int *word_counts)
+{
+	int p;
+	if (lineno < 0 || lineno >= BVIS_LINE_COUNT)
+		return;
+	for (p = 0; p < MAX_PLANES; p++)
+		bvis_line_words[lineno][p] = word_counts[p];
 }
 
 static int bvis_native_width(void)
@@ -2370,13 +2433,13 @@ static int bvis_native_height(void)
 	return BVIS_LINE_COUNT;
 }
 
-/* vsync start: forget last frame's marks. */
+/* vsync start: forget last frame's line-resolution bookkeeping. (No per-line snapshot to clear —
+ * bvis_line_bplpt/fm/planes get overwritten every line via bvis_snapshot_line_fetch before
+ * bvis_src_line_ctx could ever reference them, so last frame's values are never read stale.) */
 static void bvis_clear_source_frame(void)
 {
-	memset(bvis_src, 0, sizeof(bvis_src));
 	memset(bvis_resolved_src_line, 0xff, sizeof(bvis_resolved_src_line));
 	bvis_last_resolved_src_line = -1;
-	bvis_src_mark_calls = 0;
 }
 static void bvis_clear_native_frame(void)
 {
@@ -2400,35 +2463,6 @@ static void bvis_set_line_context(int sourceLine, int nativeLine)
 {
 	bvis_src_line_ctx = (sourceLine >= 0 && sourceLine < BVIS_LINE_COUNT) ? sourceLine : -1;
 	bvis_native_line_ctx = (nativeLine >= 0 && nativeLine < BVIS_LINE_COUNT) ? nativeLine : -1;
-}
-
-/* Mark a run of source (bitplane) pixels on line `lineno` with decay `level`.
- * Called from custom.c long_fetch_16 for each blitter-written fetched word. */
-void bvis_mark_source(int lineno, int pixelStart, int pixelCount, unsigned int level)
-{
-	if (level == 0 || pixelCount <= 0)
-		return;
-	bvis_dbg_marksrc++;
-	if (pixelStart > bvis_dbg_maxps)
-		bvis_dbg_maxps = pixelStart;
-	if (lineno < 0 || lineno >= BVIS_LINE_COUNT) {
-		bvis_dbg_rej_line++;
-		return;
-	}
-	int start = pixelStart + BVIS_SRC_BIAS;
-	int end = pixelStart + pixelCount + BVIS_SRC_BIAS;
-	if (end <= 0 || start >= BVIS_SRC_COUNT) {
-		bvis_dbg_rej_range++;
-		return;
-	}
-	if (start < 0)
-		start = 0;
-	if (end > BVIS_SRC_COUNT)
-		end = BVIS_SRC_COUNT;
-	bvis_src_mark_calls++;
-	uae_u8 *row = bvis_src[lineno];
-	for (int x = start; x < end; x++)
-		row[x] = (uae_u8)level;
 }
 
 /* Mark a run of native (cropped screen) pixels on the current native line. */
@@ -2482,54 +2516,31 @@ static void bvis_copy_native_row(int srcLine, int dstLine)
 	bvis_native_max[dy] = bvis_native_max[sy];
 }
 
-static unsigned int bvis_find_source_level(const uae_u8 *row, int rangeStart, int rangeEnd)
-{
-	if (rangeStart < 0)
-		rangeStart = 0;
-	if (rangeEnd > BVIS_SRC_COUNT)
-		rangeEnd = BVIS_SRC_COUNT;
-	for (int x = rangeStart; x < rangeEnd; x++)
-		if (row[x])
-			return row[x];
-	return 0;
-}
-static unsigned int bvis_find_source_level_from(const uae_u8 *row, int rangeStart, int rangeEnd, int *cursorX)
-{
-	if (rangeStart < 0)
-		rangeStart = 0;
-	if (rangeEnd > BVIS_SRC_COUNT)
-		rangeEnd = BVIS_SRC_COUNT;
-	if (*cursorX < rangeStart)
-		*cursorX = rangeStart;
-	if (*cursorX >= rangeEnd)
-		return 0;
-	for (int x = *cursorX; x < rangeEnd; x++) {
-		if (row[x]) {
-			*cursorX = x;
-			return row[x];
-		}
-	}
-	*cursorX = rangeEnd;
-	return 0;
-}
-
 /* Project the source-pixel range [sourceStart,sourceEnd) drawn to native range
  * [nativeStart,nativeEnd) — mapping each native pixel back to its source pixel
- * and carrying the mark. Handles any source:native scale (lores/hires/shres,
- * stretch/shrink). Called from pfield_do_linetoscr after the pixels are drawn. */
+ * and, for that pixel, checking directly whether the chip-RAM word it was
+ * fetched from was recently blitter-written (see the big comment above).
+ * Handles any source:native scale (lores/hires/shres, stretch/shrink).
+ * Called from pfield_do_linetoscr after the pixels are drawn. */
 static void bvis_project(int sourceStart, int sourceEnd, int nativeStart, int nativeEnd)
 {
-	if (bvis_src_mark_calls == 0)
-		return;
 	if (bvis_src_line_ctx < 0 || bvis_src_line_ctx >= BVIS_LINE_COUNT)
 		return;
 	if (sourceEnd <= sourceStart || nativeEnd <= nativeStart)
 		return;
 
+	int lineno = bvis_src_line_ctx;
+	int fm = bvis_line_fm[lineno];
+	int pixelsPerWord = 16 << fm;
+	int nrPlanes = bvis_line_planes[lineno];
+	const uaecptr *linePt = bvis_line_bplpt[lineno];
+	const int *wordsFetched = bvis_line_words[lineno];
+	if (nrPlanes <= 0)
+		return;
+
 	int sourceWidth = sourceEnd - sourceStart;
 	int nativeWidth = nativeEnd - nativeStart;
-	const uae_u8 *row = bvis_src[bvis_src_line_ctx];
-	int cursor = sourceStart + BVIS_SRC_INDEX_OFFSET;
+
 	unsigned int runLevel = 0;
 	int runStart = 0, runCount = 0;
 	for (int nativeX = nativeStart; nativeX < nativeEnd; nativeX++) {
@@ -2539,14 +2550,67 @@ static void bvis_project(int sourceStart, int sourceEnd, int nativeStart, int na
 		int srcRangeEnd = sourceStart + (int)((((int64_t)relEnd * sourceWidth) + nativeWidth - 1) / nativeWidth);
 		if (srcRangeEnd <= srcRangeStart)
 			srcRangeEnd = srcRangeStart + 1;
-		int storeStart = srcRangeStart + BVIS_SRC_INDEX_OFFSET;
-		int storeEnd = srcRangeEnd + BVIS_SRC_INDEX_OFFSET;
-		/* Only mark a native pixel whose actual mapped source pixel was blitted.
-		 * (Engine9000's edge-fallback that searched ±BVIS_EDGE_SOURCE beyond the
-		 * range is removed: do_color_changes splits a line into per-colour-change
-		 * segments, so the fallback smears marks across every segment boundary —
-		 * e.g. a sliver hanging off a filled box's corner.) */
-		unsigned int level = bvis_find_source_level_from(row, storeStart, storeEnd, &cursor);
+
+		/* srcRangeStart/End are src_pixel-relative (see custom.c/drawing.c's own
+		 * convention: MAX_PIXELS_PER_LINE + pixels-since-line-fetch-start), which
+		 * is exactly the N the header comment's address formula expects. */
+		unsigned int level = 0;
+		int pixFirst = srcRangeStart - MAX_PIXELS_PER_LINE;
+		int pixLast = srcRangeEnd - 1 - MAX_PIXELS_PER_LINE;
+		if (pixLast >= 0) {
+			/* bplpt advances by (pixelsPerWord / 8) bytes per fetched word (see
+			 * fetch()'s bplpt[nr] += fetchmode_bytes, fetchmode_bytes = 2 << fm =
+			 * pixelsPerWord / 8) — NOT a flat 2 bytes once fm > 0 (AGA 32/64-bit
+			 * fetches), so the word stride below must scale with it too. */
+			int bytesPerWord = pixelsPerWord / 8;
+			/* Exact fetch-to-display latency, no padding/margin: a fetched word's
+			 * bits don't reach the output stream until one full fetch unit later
+			 * (the fetched→todisplay→todisplay2 double-buffering in custom.c's
+			 * do_delays_3_ecs/beginning_of_plane_block; traced directly, not
+			 * inferred), PLUS this plane-parity's real BPLCON1 scroll delay
+			 * (bvis_line_delay, snapshotted from custom.c's toscr_delay_shifter —
+			 * NOT toscr_delay_adjusted, which turned out to fold in an unrelated
+			 * SPEEDUP-only fetch-alignment correction worth close to another
+			 * whole fetch unit and so double-counted when tried here). This is a
+			 * single deterministic value per plane, not a range: once word 0's
+			 * screen position is known, word k is always exactly k fetch units
+			 * later, so there's nothing to pad. */
+			for (int p = 0; p < nrPlanes; p++) {
+				if (wordsFetched[p] <= 0)
+					continue;
+				int offset = pixelsPerWord + bvis_line_delay[lineno][p & 1];
+				int adjFirst = pixFirst - offset;
+				int adjLast = pixLast - offset;
+				int wordFirst, wordLast;
+				if (adjLast < 0) {
+					/* This pixel range predates word 0's own display window under
+					 * the offset model above — there IS no earlier word to blame it
+					 * on (no "word -1"), so the closest real answer is word 0 itself,
+					 * not "nothing". Leaving this as a skip is what produced the
+					 * "narrower than the actual blit" edge: for a fully-redrawn
+					 * object (confirmed: every word in this line's fetch was
+					 * genuinely just blitter-written), a handful of leading pixels
+					 * silently going unchecked showed up as a real, visible gap. */
+					wordFirst = 0;
+					wordLast = 0;
+				} else {
+					wordFirst = adjFirst >= 0 ? adjFirst / pixelsPerWord : 0;
+					wordLast = adjLast / pixelsPerWord;
+				}
+				/* Clamp to words this line's real fetch actually produced for this
+				 * plane (bvis_line_words, counted directly in fetch()/
+				 * long_fetch_16/32/64 — see custom.c) — anything beyond it is
+				 * border/DIW-only, no chip address exists there at all. */
+				if (wordLast >= wordsFetched[p])
+					wordLast = wordsFetched[p] - 1;
+				for (int wi = wordFirst; wi <= wordLast; wi++) {
+					uaecptr addr = linePt[p] + (uaecptr)(wi * bytesPerWord);
+					unsigned int l = puae_blitvis_fetch_level(addr);
+					if (l > level)
+						level = l;
+				}
+			}
+		}
 		if (level != 0 && runCount > 0 && runLevel == level) {
 			runCount++;
 			continue;
@@ -2576,7 +2640,7 @@ static void bvis_project(int sourceStart, int sourceEnd, int nativeStart, int na
  * are already in cropped coords, so (y,x) index directly. */
 void bvis_blend_rgba(unsigned char *rgba, int w, int h)
 {
-	if (bvis_src_mark_calls != 0) {
+	if (g_blitTrackingEnabled) {
 		for (int y = 0; y < h && y < BVIS_LINE_COUNT; y++) {
 			int minx = bvis_native_min[y];
 			int maxx = bvis_native_max[y];

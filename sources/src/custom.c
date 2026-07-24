@@ -1038,28 +1038,27 @@ static int output_res(int res)
 	return res;
 }
 
-/* puae_debug: blit-region pixel highlight. Per-plane running count of source
- * (bitplane) pixels fetched so far on the current line — long_fetch_16 uses it
- * to mark each fetched word's source-pixel position. Reset per line in
- * reset_bpl_vars. See drawing.c bvis_* / puae_debug.c. */
+/* puae_debug: blit-region pixel highlight. drawing.c's bvis_project computes,
+ * at draw time, which chip-RAM word a given source pixel came from directly
+ * from this line's starting bplpt/fetchmode/plane-count — snapshotted once
+ * per line, at the exact point (reset_bpl_vars, below fetchmode's own
+ * declaration) bplpt is finalized for the upcoming line. See drawing.c
+ * bvis_* / puae_debug.c.
+ *
+ * bvis_fetch_words[plane] counts real fetch units (one increment per
+ * fetchmode_bytes-sized chip access — exactly the granularity bvis_project's
+ * own word-index math uses) since the last reset_bpl_vars, so drawing.c can
+ * bound its per-plane word-index scan to what was genuinely fetched this
+ * line. (plflinelen/out_offs, tried first, turned out to be a DISPLAY-side
+ * post-shift bit-accumulation counter — same units as thisline's OUTPUT
+ * production, not a fetch-side word count — so it doesn't reliably convert
+ * back to a real chip-address bound; this counts the real fetches directly,
+ * matching the same "just follow bytes affected, word by word" approach the
+ * write-tap side already uses.) */
 extern int g_blitTrackingEnabled;                            /* puae_debug.c */
-extern unsigned int puae_blitvis_fetch_level(uaecptr addr);  /* puae_debug.c: 1..DECAY, or 0 */
-extern void bvis_mark_source(int lineno, int pixelStart, int pixelCount, unsigned int level); /* drawing.c */
-static int bvis_fetch_cursor[MAX_PLANES];
-
-static void reset_bpl_vars()
-{
-	out_subpix[0] = 0;
-	out_subpix[1] = 0;
-	out_nbits = 0;
-	out_offs = 0;
-	toscr_nbits = 0;
-	if (g_blitTrackingEnabled) {
-		for (int p = 0; p < MAX_PLANES; p++)
-			bvis_fetch_cursor[p] = 0;
-	}
-	thisline_decision.bplres = output_res(bplcon0_res);
-}
+extern void bvis_snapshot_line_fetch(int lineno, int nr_planes, int fm, const uaecptr *bplpt, const int *delay_px); /* drawing.c */
+extern void bvis_snapshot_line_wordcount(int lineno, const int *word_counts); /* drawing.c */
+static int bvis_fetch_words[MAX_PLANES];
 
 STATIC_INLINE bool line_hidden(void)
 {
@@ -1794,6 +1793,32 @@ static void sync_changes(int hpos)
 static int fetchmode, fetchmode_size, fetchmode_mask, fetchmode_bytes;
 static int fetchmode_fmode_bpl, fetchmode_fmode_spr;
 static int real_bitplane_number[3][3][9];
+
+static void reset_bpl_vars()
+{
+	out_subpix[0] = 0;
+	out_subpix[1] = 0;
+	out_nbits = 0;
+	out_offs = 0;
+	toscr_nbits = 0;
+	if (g_blitTrackingEnabled) {
+		/* toscr_delay_shifter[nr & 1] is the raw per-plane-parity BPLCON1 scroll
+		 * delay in its own "shres" units — >> LORES_TO_SHRES_SHIFT recovers it in
+		 * plain lores pixels (this line's bplres, matching src_pixel's own
+		 * units). Deliberately NOT toscr_delay_adjusted: that one folds in an
+		 * unrelated SPEEDUP-only fetch-alignment correction (compute_toscr_delay's
+		 * `delayoffset`, worth close to another whole fetch unit) that has
+		 * nothing to do with the real BPLCON1 delay bvis_project needs. */
+		int delay_px[2] = {
+			toscr_delay_shifter[0] >> LORES_TO_SHRES_SHIFT,
+			toscr_delay_shifter[1] >> LORES_TO_SHRES_SHIFT,
+		};
+		bvis_snapshot_line_fetch(next_lineno, bplcon0_planes_limit, fetchmode, bplpt, delay_px);
+		for (int p = 0; p < MAX_PLANES; p++)
+			bvis_fetch_words[p] = 0;
+	}
+	thisline_decision.bplres = output_res(bplcon0_res);
+}
 
 /* Disable bitplane DMA if planes > available DMA slots. This is needed
 e.g. by the Sanity WOC demo (at the "Party Effect").  */
@@ -3091,6 +3116,9 @@ static bool fetch(int nr, int fm, int hpos, bool addmodulo)
 		if (addmodulo) {
 			add_modulo(hpos, nr);
 		}
+		if (g_blitTrackingEnabled && nr < MAX_PLANES) {
+			bvis_fetch_words[nr]++;
+		}
 
 	}
 
@@ -3102,23 +3130,6 @@ static bool fetch(int nr, int fm, int hpos, bool addmodulo)
 		debug_getpeekdma_chipram(p, MW_MASK_BPL_0 << nr, 0x110 + nr * 2, 0xe0 + nr * 4);
 	}
 #endif
-
-	/* puae_debug: blit-region highlight. This per-cycle path is the one that
-	 * actually runs while tracking is on (debug_dma disables the long_fetch
-	 * SPEEDUP path above at #if SPEEDUP). If this fetched word `p` was recently
-	 * blitter-written, mark its source pixels (bvis). fetchmode_bytes*8/... the
-	 * word covers (16 << fm) source pixels; the per-plane cursor tracks position
-	 * (reset per line in reset_bpl_vars), + one fetch unit + scroll delay for the
-	 * fetch→display pipeline. */
-	if (g_blitTrackingEnabled) {
-		int bvisDelay = toscr_delay_adjusted[nr & 1];
-		int bvisPixels = 16 << fm;
-		int fetchPixelStart = bvis_fetch_cursor[nr];
-		bvis_fetch_cursor[nr] += bvisPixels;
-		unsigned int level = puae_blitvis_fetch_level(p);
-		if (level)
-			bvis_mark_source(next_lineno, fetchPixelStart + bvisPixels + bvisDelay, bvisPixels, level);
-	}
 
 	switch (fm)
 	{
@@ -4536,42 +4547,8 @@ STATIC_INLINE void long_fetch_16(int plane, int nwords, int weird_number_of_bits
 
 	bplpt[plane] += nwords * 2;
 	bplptx[plane] += nwords * 2;
-
-	/* puae_debug: mark this fetch's source pixels for the blit-region highlight.
-	 * Runs alongside the fast bulk read below — it does NOT force the slow
-	 * per-word path, just inspects each word's address against the write-tag.
-	 * Each word covers 16 source pixels; the per-plane cursor (reset per line in
-	 * reset_bpl_vars) tracks position, + one fetch unit + scroll delay for the
-	 * fetch→display pipeline. This is the fast path used when debug_dma is off
-	 * (blit-vis alone); fetch() covers the per-cycle path used when it is on. */
-	if (g_blitTrackingEnabled) {
-		uaecptr a = bpladdr;
-		int runStart = -1, runCount = 0;
-		unsigned int runLevel = 0;
-		for (int i = 0; i < nwords; i++) {
-			int fetchPixelStart = bvis_fetch_cursor[plane];
-			bvis_fetch_cursor[plane] += 16;
-			int pixelStart = fetchPixelStart + 16 + delay;
-			unsigned int level = puae_blitvis_fetch_level(a);
-			if (level && runLevel == level && pixelStart == runStart + runCount) {
-				runCount += 16;
-			} else {
-				if (runCount > 0)
-					bvis_mark_source(next_lineno, runStart, runCount, runLevel);
-				if (level) {
-					runStart = pixelStart;
-					runCount = 16;
-					runLevel = level;
-				} else {
-					runStart = -1;
-					runCount = 0;
-					runLevel = 0;
-				}
-			}
-			a += 2;
-		}
-		if (runCount > 0)
-			bvis_mark_source(next_lineno, runStart, runCount, runLevel);
+	if (g_blitTrackingEnabled && plane < MAX_PLANES && fetchmode_bytes > 0) {
+		bvis_fetch_words[plane] += (nwords * 2) / fetchmode_bytes;
 	}
 
 	if (real_pt == NULL) {
@@ -4642,6 +4619,9 @@ STATIC_INLINE void long_fetch_32 (int plane, int nwords, int weird_number_of_bit
 
 	bplpt[plane] += nwords * 2;
 	bplptx[plane] += nwords * 2;
+	if (g_blitTrackingEnabled && plane < MAX_PLANES && fetchmode_bytes > 0) {
+		bvis_fetch_words[plane] += (nwords * 2) / fetchmode_bytes;
+	}
 
 	if (real_pt == NULL) {
 		if (nwords > MAX_FETCH_TEMP) {
@@ -4764,6 +4744,9 @@ STATIC_INLINE void long_fetch_64(int plane, int nwords, int weird_number_of_bits
 
 	bplpt[plane] += nwords * 2;
 	bplptx[plane] += nwords * 2;
+	if (g_blitTrackingEnabled && plane < MAX_PLANES && fetchmode_bytes > 0) {
+		bvis_fetch_words[plane] += (nwords * 2) / fetchmode_bytes;
+	}
 
 	if (real_pt == NULL) {
 		if (nwords * 2 > MAX_FETCH_TEMP) {
@@ -4975,6 +4958,9 @@ static void finish_final_fetch(int hpos)
 		out_offs = MAX_PIXELS_PER_LINE / 32;
 	}
 	thisline_decision.plflinelen = out_offs;
+	if (g_blitTrackingEnabled) {
+		bvis_snapshot_line_wordcount(next_lineno, bvis_fetch_words);
+	}
 
 	/* The latter condition might be able to happen in interlaced frames. */
 	if (vposh >= minfirstline && (thisframe_first_drawn_line < 0 || vposh < thisframe_first_drawn_line)) {
@@ -6286,6 +6272,13 @@ static void finish_decisions(int hpos)
 		thisline_decision.plfright = thisline_decision.plfleft;
 		thisline_decision.plflinelen = 0;
 		thisline_decision.bplres = output_res(RES_LORES);
+		/* finish_final_fetch's own snapshot call above was skipped (its early
+		 * return fires on plfleft<0, which was still true when it ran) — mirror
+		 * plflinelen's own "0 real words" conclusion so bvis_line_wordcount
+		 * doesn't keep whatever a previous frame left in this line-index slot. */
+		if (g_blitTrackingEnabled) {
+			bvis_snapshot_line_wordcount(next_lineno, bvis_fetch_words);
+		}
 	}
 	if (!ecs_denise) {
 		if (thisline_decision.diwfirstword < hdiwbplstart) {
