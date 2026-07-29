@@ -2566,43 +2566,68 @@ static void bvis_project(int sourceStart, int sourceEnd, int nativeStart, int na
 			 * pixelsPerWord / 8) — NOT a flat 2 bytes once fm > 0 (AGA 32/64-bit
 			 * fetches), so the word stride below must scale with it too. */
 			int bytesPerWord = pixelsPerWord / 8;
-			/* offset = this plane-parity's BPLCON1 delay alone — confirmed via
-			 * console diagnostics on a fixed-DDF, BPLCON1-scrolled test case:
-			 * word 0 lands exactly at this line's DDF boundary regardless of a
-			 * nonzero delay, i.e. no separate base fetch-to-display latency
-			 * term is needed on top of it. */
+			/* Fetch-to-display latency: a fetched word's bits don't reach the
+			 * output stream until one full fetch unit later (the fetched→
+			 * todisplay→todisplay2 double-buffering in custom.c's do_delays_3_ecs
+			 * /beginning_of_plane_block; traced directly), PLUS this plane-
+			 * parity's real BPLCON1 scroll delay (bvis_line_delay). Correct for
+			 * static-DDF content (verified on a BPLCON1-scrolled test case and a
+			 * static-DDF bounding-box-blit test case); a dynamically-narrowed-
+			 * DDF demo (tracking a moving object) appears to need a different
+			 * offset, by exactly one fetch unit, for reasons not yet understood
+			 * — an attempted per-line "which fetch code path produced this"
+			 * signal (line_cyclebased) was tried and disproved by diagnostics
+			 * (it doesn't correlate with that demo's own scanlines at all), so
+			 * that discrepancy remains open rather than papered over again. */
 			for (int p = 0; p < nrPlanes; p++) {
 				if (wordsFetched[p] <= 0)
 					continue;
-				int offset = bvis_line_delay[lineno][p & 1];
+				int offset = pixelsPerWord + bvis_line_delay[lineno][p & 1];
 				int adjFirst = pixFirst - offset;
 				int adjLast = pixLast - offset;
-				if (adjLast < 0)
-					continue;
-				int wordFirst = adjFirst >= 0 ? adjFirst / pixelsPerWord : 0;
-				int wordLast = adjLast / pixelsPerWord;
-				/* Clamp to words this line's real fetch actually produced for this
-				 * plane (bvis_line_words, counted directly in fetch()/
-				 * long_fetch_16/32/64 — see custom.c) — anything beyond it is
-				 * border/DIW-only, no chip address exists there at all.
+				/* Two separate questions, not one: (1) is this screen pixel
+				 * bitplane data at all — is there a real chip address behind
+				 * it — and (2) if so, which address. (2) is the wi*bytesPerWord
+				 * arithmetic below and is already correct; this block is (1).
 				 *
-				 * wordFirst gets the SAME clamp only when it's exactly one past
-				 * the end (== wordsFetched[p]): for a tightly-cropped DDF, the
-				 * tail native pixels can compute wordFirst == wordLast ==
-				 * wordsFetched (one past the end) purely from boundary rounding,
-				 * and clamping only wordLast there left wordFirst > wordLast —
-				 * an empty scan range, silently dropping the highlight for the
-				 * last real word. But pixels genuinely deep in the border (far
-				 * beyond the object, wordFirst >> wordsFetched[p]) must NOT be
-				 * pulled back the same way — that reintroduced the opposite
-				 * bug, extending the highlight indefinitely into non-bitplane
-				 * territory. Only the exact one-past-the-end case is a rounding
-				 * artifact; anything further is genuinely out of range and
-				 * should leave wordFirst > wordLast (empty, no highlight). */
-				if (wordFirst == wordsFetched[p])
-					wordFirst = wordsFetched[p] - 1;
-				if (wordLast >= wordsFetched[p])
-					wordLast = wordsFetched[p] - 1;
+				 * The two edges are NOT symmetric, and need different tolerances:
+				 *
+				 * LEFT (word 0's start): `offset` above folds in a full fetch-
+				 * to-display latency WORD, so an entire pixelsPerWord-wide range
+				 * of native pixels immediately before the naive (pre-latency)
+				 * word-0 boundary legitimately displays word 0's own (delayed)
+				 * data — a full word is genuinely real here, not a rounding
+				 * sliver (tested: a static-DDF full-width blit's very first
+				 * pixels need exactly this). Only skip when more than one whole
+				 * word early.
+				 *
+				 * RIGHT (last real word's end): there's no equivalent "a whole
+				 * extra word is legitimately real" case — wordsFetched[p] is
+				 * the exact count of real chip-RAM words this plane fetched,
+				 * counted directly during fetch() (see bvis_line_words' doc
+				 * comment), so a whole word immediately past it never has a
+				 * backing address. The only real slop here is the nativeX->
+				 * sourceX scale mapping's own rounding (srcRangeEnd above uses a
+				 * ceiling division, so it can overshoot by at most 1 native
+				 * pixel). An earlier version tolerated a whole word of overshoot
+				 * on this edge too (by comparing the post-division word index to
+				 * wordsFetched[p] with ==, mirroring the left edge) — wrong,
+				 * because dividing by pixelsPerWord truncates, so an entire
+				 * extra, nonexistent word's worth of native pixels lands on the
+				 * exact same word index as the real last word's own rounded-in
+				 * tail; the two are indistinguishable post-division. That
+				 * silently highlighted a whole extra word that was never
+				 * fetched (confirmed via the profiler's hover tooltip: no
+				 * address past that point). Clamping in native-pixel space,
+				 * before dividing, with a 1-pixel tolerance instead of a whole
+				 * word keeps the two apart. */
+				if (adjLast < -pixelsPerWord)
+					continue;
+				int lastValidPix = wordsFetched[p] * pixelsPerWord;
+				if (adjFirst > lastValidPix)
+					continue;
+				int wordFirst = adjFirst < 0 ? 0 : (adjFirst >= lastValidPix ? lastValidPix - 1 : adjFirst) / pixelsPerWord;
+				int wordLast  = adjLast  < 0 ? 0 : (adjLast  >= lastValidPix ? lastValidPix - 1 : adjLast)  / pixelsPerWord;
 				for (int wi = wordFirst; wi <= wordLast; wi++) {
 					uaecptr addr = linePt[p] + (uaecptr)(wi * bytesPerWord);
 					unsigned int l = puae_blitvis_fetch_level(addr);
